@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ClockBot Live Log</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="log-window-body">
+    <header class="window-bar">
+      <div class="window-drag">
+        <span class="window-title"></span>
+      </div>
+      <button id="closeWindowButton" type="button" class="window-close" aria-label="Close window">&times;</button>
+    </header>
+    <main class="log-window-shell">
+      <header class="log-window-header">
+        <div class="log-window-heading">
+          <p class="section-kicker">ClockBot</p>
+          <h2 class="log-window-title">Live Log</h2>
+          <p id="logSummary" class="log-window-subtitle">Waiting for app activity...</p>
+        </div>
+      </header>
+
+      <section class="log-panel" id="logPanel"></section>
+    </main>
+    <script src="./logs.js"></script>
+  </body>
+</html>

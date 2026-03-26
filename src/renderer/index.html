@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ClockBot</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="main-window-body">
+    <header class="window-bar">
+      <div class="window-drag">
+        <span class="window-title"></span>
+      </div>
+      <button id="closeWindowButton" type="button" class="window-close" aria-label="Close window">&times;</button>
+    </header>
+    <main class="app-shell">
+      <section class="hero">
+        <div class="hero-copy-block">
+          <div class="hero-topline">
+            <p class="eyebrow">IEYASU Attendance Helper</p>
+          </div>
+          <h1>ClockBot</h1>
+          <p class="hero-copy">
+            Keep the app in the tray, set today's schedule, and let it handle
+            clock-in and clock-out for this session.
+          </p>
+        </div>
+        <button id="toggleLogWindowButton" type="button" class="secondary">Show Live Log</button>
+      </section>
+
+      <section class="card grid two-columns control-grid">
+        <div class="panel-surface">
+          <div class="panel-heading">
+            <p class="section-kicker">Session</p>
+            <div class="panel-heading-row">
+              <h2>Credentials</h2>
+              <button id="clearCredentialsButton" type="button" class="secondary panel-action">Clear Saved Info</button>
+            </div>
+          </div>
+          <form id="credentialsForm" class="stack compact-form" novalidate>
+            <label>
+              <span>Username</span>
+              <input id="username" name="username" type="text" autocomplete="username" />
+            </label>
+            <label>
+              <span>Password</span>
+              <input id="password" name="password" type="password" autocomplete="current-password" />
+            </label>
+            <button id="startMonitoringButton" type="submit" class="primary">Start Monitoring</button>
+          </form>
+          <p class="hint">Saved securely on this PC. Password stays hidden.</p>
+        </div>
+
+        <div class="panel-surface">
+          <div class="panel-heading">
+            <p class="section-kicker">Daily Schedule</p>
+            <div class="panel-heading-row">
+              <h2>Schedule</h2>
+              <button id="resetScheduleButton" type="button" class="secondary panel-action">Reset Times</button>
+            </div>
+          </div>
+          <form id="settingsForm" class="stack compact-form">
+            <label>
+              <span>Morning Time</span>
+              <input id="morningTime" name="morningTime" type="text" inputmode="numeric" maxlength="5" placeholder="09:00" title="Use 24-hour time, for example 09:00" required />
+            </label>
+            <label>
+              <span>Evening Time</span>
+              <input id="eveningTime" name="eveningTime" type="text" inputmode="numeric" maxlength="5" placeholder="18:00" title="Use 24-hour time, for example 18:00" required />
+            </label>
+            <label class="checkbox-row">
+              <input id="showBrowser" name="showBrowser" type="checkbox" />
+              <span>Show browser during runs</span>
+            </label>
+          </form>
+          <p class="hint">Changes save automatically.</p>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-header">
+          <div>
+            <p class="section-kicker">Today</p>
+            <h2>Attendance Status</h2>
+          </div>
+          <p id="nextRunSummary">Waiting for schedule information...</p>
+        </div>
+        <div class="status-grid">
+          <article class="status-panel">
+            <h3>Clock In</h3>
+            <div class="status-pill" id="clockInStatus">Pending</div>
+            <p class="status-message" id="clockInMessage">Waiting for the scheduled time.</p>
+            <p class="status-meta" id="clockInMeta">No attempts yet.</p>
+          </article>
+          <article class="status-panel">
+            <h3>Clock Out</h3>
+            <div class="status-pill" id="clockOutStatus">Pending</div>
+            <p class="status-message" id="clockOutMessage">Waiting for the scheduled time.</p>
+            <p class="status-meta" id="clockOutMeta">No attempts yet.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-header">
+          <div>
+            <p class="section-kicker">Control</p>
+            <h2 class="no-wrap">Manual Actions</h2>
+          </div>
+        </div>
+        <div class="button-row">
+          <button id="runClockIn" class="primary" type="button">Clock In</button>
+          <button id="runClockOut" type="button">Clock Out</button>
+        </div>
+        <p class="hint">Use these buttons to run the actions manually whenever needed.</p>
+      </section>
+    </main>
+
+    <dialog id="confirmDialog" class="confirm-dialog">
+      <div class="confirm-dialog-card">
+        <p class="section-kicker">Confirm</p>
+        <h2 id="confirmDialogTitle">Please confirm</h2>
+        <p id="confirmDialogMessage" class="confirm-dialog-message"></p>
+        <div class="dialog-actions">
+          <button id="confirmDialogCancel" type="button" class="secondary">Cancel</button>
+          <button id="confirmDialogConfirm" type="button" class="primary">Confirm</button>
+        </div>
+      </div>
+    </dialog>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
