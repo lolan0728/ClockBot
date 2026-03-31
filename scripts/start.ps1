@@ -13,6 +13,23 @@ function Normalize-Path {
   return $fullPath
 }
 
+function Get-ScriptDirectory {
+  $candidates = @(
+    $PSScriptRoot,
+    $(if ($PSCommandPath) { Split-Path -Parent $PSCommandPath }),
+    $(if ($MyInvocation.MyCommand.Path) { Split-Path -Parent $MyInvocation.MyCommand.Path })
+  ) | Where-Object { $_ }
+
+  foreach ($candidate in $candidates) {
+    $normalized = Normalize-Path $candidate
+    if ($normalized -and (Test-Path -LiteralPath $normalized)) {
+      return $normalized
+    }
+  }
+
+  throw "Could not determine the script directory."
+}
+
 function Get-NodeBinary {
   $candidate = Join-Path $env:ProgramFiles "nodejs\node.exe"
 
@@ -25,7 +42,8 @@ function Get-NodeBinary {
 
 $nodeBinary = Get-NodeBinary
 $npmCli = Join-Path (Split-Path $nodeBinary -Parent) "node_modules\npm\bin\npm-cli.js"
-$projectRoot = Normalize-Path (Join-Path $PSScriptRoot "..")
+$scriptDirectory = Get-ScriptDirectory
+$projectRoot = Normalize-Path (Join-Path $scriptDirectory "..")
 $env:npm_config_registry = "https://registry.npmjs.org/"
 $env:npm_config_cache = Join-Path $projectRoot ".npm-cache"
 

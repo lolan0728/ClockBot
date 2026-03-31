@@ -1,5 +1,6 @@
 const { execFile } = require("child_process");
 const { promisify } = require("util");
+const os = require("os");
 
 const execFileAsync = promisify(execFile);
 const POWERSHELL_PATH = "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
@@ -38,7 +39,7 @@ function parseLocation(stdout) {
   };
 }
 
-async function getSystemLocation(log) {
+async function getWindowsSystemLocation(log) {
   try {
     const { stdout } = await execFileAsync(
       POWERSHELL_PATH,
@@ -66,6 +67,16 @@ async function getSystemLocation(log) {
     });
     return null;
   }
+}
+
+async function getSystemLocation(log) {
+  if (process.platform === "win32") {
+    return getWindowsSystemLocation(log);
+  }
+
+  const platformLabel = process.platform === "darwin" ? "macOS" : os.platform();
+  log.info(`${platformLabel} will rely on the browser's own location permissions for attendance automation.`);
+  return null;
 }
 
 module.exports = {

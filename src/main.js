@@ -10,11 +10,16 @@ const {
   screen
 } = require("electron");
 
-const { SettingsService } = require("./services/settings-service");
+const {
+  DEFAULT_AUTOMATION_ENGINE,
+  SettingsService,
+  sanitizePadConfig
+} = require("./services/settings-service");
 const { CredentialsService } = require("./services/credentials-service");
 const { LogService } = require("./services/log-service");
 const { SchedulerService, toDateKey } = require("./services/scheduler-service");
 const { PunchService } = require("./services/punch-service");
+const { getPadConfigError, isPadAvailable } = require("./services/pad-automation");
 
 const ACTION_LABELS = {
   clockIn: "Clock In",
@@ -46,6 +51,7 @@ let draftCredentials = {
 let isQuitting = false;
 let isRunning = false;
 let latestRun = null;
+let latestPadProgress = null;
 let monitoringStartedAt = null;
 let monitoringEnabled = false;
 let dailyState = createDailyState();
@@ -123,6 +129,7 @@ function loadTrayMenuIcon(iconPath, fallbackSvgBody) {
 function resetDailyState() {
   dailyState = createDailyState();
   latestRun = null;
+  latestPadProgress = null;
   logService.info("Reset daily task state for the new day.");
   refreshPendingMessages();
   broadcastState();
@@ -138,11 +145,45 @@ function ensureCurrentDayState() {
   }
 }
 
+function getCurrentSettings() {
+  return settingsService ? settingsService.getSettings() : null;
+}
+
+function getAutomationEngine(settings) {
+  return settings && settings.automationEngine === "pad"
+    ? "pad"
+    : DEFAULT_AUTOMATION_ENGINE;
+}
+
+function getAutomationEngineBlockingReason(settings) {
+  const effectiveSettings = settings || getCurrentSettings();
+
+  if (!effectiveSettings) {
+    return null;
+  }
+
+  if (getAutomationEngine(effectiveSettings) !== "pad") {
+    return null;
+  }
+
+  return getPadConfigError(effectiveSettings.padConfig);
+}
+
+function isAutomationEngineReady(settings) {
+  return !getAutomationEngineBlockingReason(settings);
+}
+
+function isPadConfiguredReady(settings) {
+  const effectiveSettings = settings || getCurrentSettings();
+  return isPadAvailable() && !getPadConfigError(effectiveSettings ? effectiveSettings.padConfig : null);
+}
+
 function buildStateSnapshot() {
   ensureCurrentDayState();
+  const settings = getCurrentSettings();
 
   return {
-    settings: settingsService.getSettings(),
+    settings,
     credentialsReady: Boolean(runtimeCredentials && runtimeCredentials.username && runtimeCredentials.password),
     activeCredentials: {
       username: runtimeCredentials ? runtimeCredentials.username : "",
@@ -155,8 +196,13 @@ function buildStateSnapshot() {
     logWindowVisible: Boolean(logWindow && !logWindow.isDestroyed() && logWindow.isVisible()),
     dailyState,
     latestRun,
+    latestPadProgress,
     logs: logService.getEntries(),
-    schedulePreview: schedulerService.getSchedulePreview()
+    schedulePreview: schedulerService.getSchedulePreview(),
+    padReady: isPadConfiguredReady(settings),
+    capabilities: {
+      padAvailable: isPadAvailable()
+    }
   };
 }
 
@@ -250,6 +296,37 @@ function updateActionState(action, status, message) {
   };
 }
 
+function updateActionProgress(action, progress) {
+  if (!progress) {
+    return;
+  }
+
+  const nextMessage = progress.message || progress.stage || `${ACTION_LABELS[action]} is running...`;
+  const timestamp = progress.updatedAt || new Date().toISOString();
+
+  dailyState[action] = {
+    ...dailyState[action],
+    status: "Running",
+    message: nextMessage,
+    lastRunAt: timestamp
+  };
+
+  latestPadProgress = {
+    action,
+    stage: progress.stage || "",
+    message: progress.message || "",
+    timestamp
+  };
+
+  latestRun = {
+    action,
+    actionLabel: ACTION_LABELS[action],
+    status: "Running",
+    message: nextMessage,
+    timestamp
+  };
+}
+
 function refreshPendingMessages() {
   const settings = settingsService ? settingsService.getSettings() : null;
 
@@ -277,6 +354,7 @@ function focusMainWindow() {
 
 function startMonitoringSession(inputCredentials = {}, options = {}) {
   const resolvedCredentials = resolveCredentials(inputCredentials);
+  const automationError = getAutomationEngineBlockingReason();
 
   if (!resolvedCredentials) {
     const source = options.source || "app";
@@ -285,6 +363,14 @@ function startMonitoringSession(inputCredentials = {}, options = {}) {
       : "Username and password are both required.";
     logService.warn(message, { source });
     throw new Error(message);
+  }
+
+  if (automationError) {
+    logService.warn(automationError, {
+      source: options.source || "app",
+      automationEngine: getAutomationEngine(getCurrentSettings())
+    });
+    throw new Error(automationError);
   }
 
   ensureCurrentDayState();
@@ -310,6 +396,7 @@ function startMonitoringSession(inputCredentials = {}, options = {}) {
     message: `Monitoring started. Today's schedule is ${settingsService.getSettings().morningTime} and ${settingsService.getSettings().eveningTime}.`,
     timestamp: monitoringStartedAt
   };
+  latestPadProgress = null;
   logService.info("Credentials stored in memory for the current session.");
   broadcastState();
   return buildStateSnapshot();
@@ -328,6 +415,7 @@ function stopMonitoringSession() {
     message: "Monitoring has been stopped for this session.",
     timestamp: new Date().toISOString()
   };
+  latestPadProgress = null;
   logService.info("Monitoring stopped for the current session.");
   broadcastState();
   return buildStateSnapshot();
@@ -350,8 +438,13 @@ async function toggleMonitoringFromTray() {
 }
 
 function buildTrayMenu() {
-  const monitoringReady = monitoringEnabled || canUseDraftCredentialsForMonitoring();
+  const settings = getCurrentSettings();
+  const monitoringReady = monitoringEnabled || (
+    canUseDraftCredentialsForMonitoring() &&
+    isAutomationEngineReady(settings)
+  );
   const canToggleMonitoring = !isRunning && monitoringReady;
+  const automationError = getAutomationEngineBlockingReason(settings);
 
   let monitoringLabel = monitoringEnabled ? "Stop" : "Start";
   let monitoringIcon = monitoringEnabled
@@ -363,6 +456,9 @@ function buildTrayMenu() {
     monitoringIcon = monitoringEnabled
       ? TRAY_MENU_ICONS.stopMonitoringDisabled
       : TRAY_MENU_ICONS.startMonitoringDisabled;
+  } else if (!monitoringEnabled && automationError) {
+    monitoringLabel = "Start (Engine not ready)";
+    monitoringIcon = TRAY_MENU_ICONS.startMonitoringDisabled;
   } else if (!monitoringEnabled && !monitoringReady) {
     monitoringLabel = "Start (Need credentials)";
     monitoringIcon = TRAY_MENU_ICONS.startMonitoringDisabled;
@@ -422,6 +518,20 @@ async function runAttendanceAction(action, metadata = { source: "manual" }) {
     return buildStateSnapshot();
   }
 
+  const actionSettings = getCurrentSettings();
+  const automationError = getAutomationEngineBlockingReason(actionSettings);
+
+  if (automationError) {
+    logService.warn(automationError, {
+      ...metadata,
+      automationEngine: getAutomationEngine(actionSettings)
+    });
+    updateActionState(action, "Failed", automationError);
+    showNotification("ClockBot", automationError);
+    broadcastState();
+    return buildStateSnapshot();
+  }
+
   const actionCredentials = monitoringEnabled && runtimeCredentials
     ? runtimeCredentials
     : resolveCredentials(metadata.credentials || {});
@@ -436,13 +546,20 @@ async function runAttendanceAction(action, metadata = { source: "manual" }) {
   }
 
   isRunning = true;
+  latestPadProgress = null;
   updateActionState(action, "Running", `${ACTION_LABELS[action]} is starting...`);
   logService.info(`Starting ${action}.`, metadata);
   broadcastState();
 
   try {
-    const result = await punchService.run(action, actionCredentials, settingsService.getSettings());
+    const result = await punchService.run(action, actionCredentials, actionSettings, {
+      onProgress: (progress) => {
+        updateActionProgress(action, progress);
+        broadcastState();
+      }
+    });
     updateActionState(action, result.status, result.message);
+    latestPadProgress = null;
     logService.info(`${ACTION_LABELS[action]} finished with status ${result.status}.`, {
       ...metadata,
       message: result.message
@@ -456,6 +573,7 @@ async function runAttendanceAction(action, metadata = { source: "manual" }) {
   } catch (error) {
     const message = error && error.message ? error.message : "Unknown automation error.";
     updateActionState(action, "Failed", message);
+    latestPadProgress = null;
     logService.error(`${ACTION_LABELS[action]} failed.`, {
       ...metadata,
       message
@@ -673,10 +791,13 @@ function registerIpcHandlers() {
   ipcMain.handle("clockbot:get-state", () => buildStateSnapshot());
 
   ipcMain.handle("clockbot:save-settings", (_event, partialSettings) => {
+    const currentSettings = getCurrentSettings();
     const nextSettings = {
       morningTime: partialSettings.morningTime,
       eveningTime: partialSettings.eveningTime,
-      showBrowser: Boolean(partialSettings.showBrowser)
+      automationEngine: typeof partialSettings.automationEngine === "string"
+        ? partialSettings.automationEngine
+        : currentSettings.automationEngine
     };
 
     settingsService.save(nextSettings);
@@ -685,6 +806,19 @@ function registerIpcHandlers() {
     }
     refreshPendingMessages();
     logService.info("Saved app settings.", nextSettings);
+    broadcastState();
+    return buildStateSnapshot();
+  });
+
+  ipcMain.handle("clockbot:save-pad-config", (_event, partialPadConfig) => {
+    const nextPadConfig = sanitizePadConfig(partialPadConfig);
+    settingsService.save({
+      padConfig: nextPadConfig
+    });
+    logService.info("Saved PAD settings.", {
+      workflowName: nextPadConfig.workflowName || null,
+      environmentId: nextPadConfig.environmentId || null
+    });
     broadcastState();
     return buildStateSnapshot();
   });
@@ -773,7 +907,9 @@ function wireServices() {
     password: ""
   };
   logService = new LogService(userDataPath);
-  punchService = new PunchService(logService);
+  punchService = new PunchService(logService, {
+    baseDirectory: userDataPath
+  });
   schedulerService = new SchedulerService({
     getSettings: () => settingsService.getSettings(),
     onTrigger: (action, metadata) => runAttendanceAction(action, metadata),
@@ -817,7 +953,9 @@ if (!ensureSingleInstance()) {
 }
 
 app.whenReady().then(() => {
-  app.setAppUserModelId("ClockBot");
+  if (process.platform === "win32") {
+    app.setAppUserModelId("ClockBot");
+  }
   wireServices();
   createWindow();
   createTray();

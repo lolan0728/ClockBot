@@ -18,62 +18,88 @@
         <div class="hero-copy-block">
           <div class="hero-topline">
             <p class="eyebrow">IEYASU Attendance Helper</p>
+            <button id="toggleLogWindowButton" type="button" class="secondary panel-action hero-log-button">Show Live Log</button>
           </div>
           <h1>ClockBot</h1>
           <p class="hero-copy">
             Keep the app in the tray, set today's schedule, and let it handle
             clock-in and clock-out for this session.
           </p>
+          <div class="hero-engine-row">
+            <div class="engine-selector-block">
+              <p class="section-kicker">Run Method</p>
+              <div id="engineToggle" class="engine-toggle" role="radiogroup" aria-label="Run Method">
+                <span class="engine-toggle-indicator" aria-hidden="true"></span>
+                <label class="engine-option">
+                  <input id="enginePlaywright" name="automationEngine" type="radio" value="playwright" />
+                  <span>Browser Mode</span>
+                </label>
+                <label class="engine-option">
+                  <input id="enginePad" name="automationEngine" type="radio" value="pad" />
+                  <span>Desktop Flow</span>
+                </label>
+              </div>
+              <div class="hero-meta-row">
+                <p id="automationEngineNote" class="hero-meta"></p>
+                <button id="configurePadButton" type="button" class="inline-link">Configure PAD</button>
+              </div>
+            </div>
+          </div>
         </div>
-        <button id="toggleLogWindowButton" type="button" class="secondary">Show Live Log</button>
       </section>
 
-      <section class="card grid two-columns control-grid">
-        <div class="panel-surface">
-          <div class="panel-heading">
-            <p class="section-kicker">Session</p>
-            <div class="panel-heading-row">
-              <h2>Credentials</h2>
-              <button id="clearCredentialsButton" type="button" class="secondary panel-action">Clear Saved Info</button>
+      <section class="card control-card">
+        <div class="control-grid">
+          <div class="panel-surface">
+            <div class="panel-heading">
+              <p class="section-kicker">Session</p>
+              <div class="panel-heading-row">
+                <h2>Credentials</h2>
+                <button id="clearCredentialsButton" type="button" class="secondary panel-action">Clear Saved Info</button>
+              </div>
             </div>
+            <form id="credentialsForm" class="stack compact-form" novalidate>
+              <label>
+                <span>Username</span>
+                <input id="username" name="username" type="text" autocomplete="username" />
+              </label>
+              <label>
+                <span>Password</span>
+                <input id="password" name="password" type="password" autocomplete="current-password" />
+              </label>
+            </form>
+            <p class="hint">Saved securely on this PC. Password hidden.</p>
           </div>
-          <form id="credentialsForm" class="stack compact-form" novalidate>
-            <label>
-              <span>Username</span>
-              <input id="username" name="username" type="text" autocomplete="username" />
-            </label>
-            <label>
-              <span>Password</span>
-              <input id="password" name="password" type="password" autocomplete="current-password" />
-            </label>
-            <button id="startMonitoringButton" type="submit" class="primary">Start Monitoring</button>
-          </form>
-          <p class="hint">Saved securely on this PC. Password stays hidden.</p>
-        </div>
 
-        <div class="panel-surface">
-          <div class="panel-heading">
-            <p class="section-kicker">Daily Schedule</p>
-            <div class="panel-heading-row">
-              <h2>Schedule</h2>
-              <button id="resetScheduleButton" type="button" class="secondary panel-action">Reset Times</button>
+          <div class="panel-surface">
+            <div class="panel-heading">
+              <p class="section-kicker">Daily Schedule</p>
+              <div class="panel-heading-row">
+                <h2>Schedule</h2>
+                <button id="resetScheduleButton" type="button" class="secondary panel-action">Reset Times</button>
+              </div>
             </div>
+            <form id="settingsForm" class="stack compact-form">
+              <label>
+                <span>Morning Time</span>
+                <input id="morningTime" name="morningTime" type="text" inputmode="numeric" maxlength="5" placeholder="09:00" title="Use 24-hour time, for example 09:00" required />
+              </label>
+              <label>
+                <span>Evening Time</span>
+                <input id="eveningTime" name="eveningTime" type="text" inputmode="numeric" maxlength="5" placeholder="18:00" title="Use 24-hour time, for example 18:00" required />
+              </label>
+            </form>
+            <p class="hint">Changes save automatically. Browser stays visible.</p>
           </div>
-          <form id="settingsForm" class="stack compact-form">
-            <label>
-              <span>Morning Time</span>
-              <input id="morningTime" name="morningTime" type="text" inputmode="numeric" maxlength="5" placeholder="09:00" title="Use 24-hour time, for example 09:00" required />
-            </label>
-            <label>
-              <span>Evening Time</span>
-              <input id="eveningTime" name="eveningTime" type="text" inputmode="numeric" maxlength="5" placeholder="18:00" title="Use 24-hour time, for example 18:00" required />
-            </label>
-            <label class="checkbox-row">
-              <input id="showBrowser" name="showBrowser" type="checkbox" />
-              <span>Show browser during runs</span>
-            </label>
-          </form>
-          <p class="hint">Changes save automatically.</p>
+        </div>
+        <div class="monitoring-action-row">
+          <div class="monitoring-action-surface">
+            <div class="monitoring-action-copy">
+              <p class="section-kicker">Monitoring</p>
+              <p class="hint monitoring-action-hint">Start or stop today's monitoring from here.</p>
+            </div>
+            <button id="startMonitoringButton" form="credentialsForm" type="submit" class="primary">Start Monitoring</button>
+          </div>
         </div>
       </section>
 
@@ -112,7 +138,7 @@
           <button id="runClockIn" class="primary" type="button">Clock In</button>
           <button id="runClockOut" type="button">Clock Out</button>
         </div>
-        <p class="hint">Use these buttons to run the actions manually whenever needed.</p>
+        <p id="manualActionsHint" class="hint">Use these buttons to run the actions manually whenever needed.</p>
       </section>
     </main>
 
@@ -126,6 +152,26 @@
           <button id="confirmDialogConfirm" type="button" class="primary">Confirm</button>
         </div>
       </div>
+    </dialog>
+
+    <dialog id="padConfigDialog" class="confirm-dialog">
+      <form id="padConfigForm" class="confirm-dialog-card dialog-form" method="dialog">
+        <p class="section-kicker">Power Automate Desktop</p>
+        <h2>PAD Configuration</h2>
+        <label>
+          <span>Workflow Name</span>
+          <input id="padWorkflowName" name="workflowName" type="text" autocomplete="off" />
+        </label>
+        <label>
+          <span>Environment ID (Optional)</span>
+          <input id="padEnvironmentId" name="environmentId" type="text" autocomplete="off" />
+        </label>
+        <p id="padConfigStatus" class="confirm-dialog-message"></p>
+        <div class="dialog-actions">
+          <button id="padConfigCancel" type="button" class="secondary">Cancel</button>
+          <button id="padConfigSave" type="submit" class="primary">Save PAD Settings</button>
+        </div>
+      </form>
     </dialog>
 
     <script src="./app.js"></script>

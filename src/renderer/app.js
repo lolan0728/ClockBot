@@ -3,7 +3,19 @@ const stateElements = {
   password: document.getElementById("password"),
   morningTime: document.getElementById("morningTime"),
   eveningTime: document.getElementById("eveningTime"),
-  showBrowser: document.getElementById("showBrowser"),
+  engineToggle: document.getElementById("engineToggle"),
+  enginePlaywright: document.getElementById("enginePlaywright"),
+  enginePad: document.getElementById("enginePad"),
+  automationEngineNote: document.getElementById("automationEngineNote"),
+  configurePadButton: document.getElementById("configurePadButton"),
+  manualActionsHint: document.getElementById("manualActionsHint"),
+  padConfigDialog: document.getElementById("padConfigDialog"),
+  padConfigForm: document.getElementById("padConfigForm"),
+  padWorkflowName: document.getElementById("padWorkflowName"),
+  padEnvironmentId: document.getElementById("padEnvironmentId"),
+  padConfigStatus: document.getElementById("padConfigStatus"),
+  padConfigCancel: document.getElementById("padConfigCancel"),
+  padConfigSave: document.getElementById("padConfigSave"),
   clearCredentialsButton: document.getElementById("clearCredentialsButton"),
   resetScheduleButton: document.getElementById("resetScheduleButton"),
   confirmDialog: document.getElementById("confirmDialog"),
@@ -41,6 +53,74 @@ const draftCredentials = {
 const TIME_HELP_TEXT = "Use 24-hour time in HH:MM format, for example 09:00.";
 const DEFAULT_MORNING_TIME = "09:00";
 const DEFAULT_EVENING_TIME = "18:00";
+const DEFAULT_AUTOMATION_ENGINE = "playwright";
+
+function getSelectedAutomationEngine(state) {
+  return state && state.settings && state.settings.automationEngine === "pad"
+    ? "pad"
+    : DEFAULT_AUTOMATION_ENGINE;
+}
+
+function getSelectedAutomationEngineFromForm() {
+  return stateElements.enginePad.checked ? "pad" : DEFAULT_AUTOMATION_ENGINE;
+}
+
+function getPadConfig(state) {
+  return state && state.settings && state.settings.padConfig
+    ? state.settings.padConfig
+    : { workflowName: "", environmentId: "" };
+}
+
+function getAutomationEngineBlockReason(state) {
+  if (!state) {
+    return null;
+  }
+
+  if (getSelectedAutomationEngine(state) !== "pad") {
+    return null;
+  }
+
+  if (!state.capabilities || !state.capabilities.padAvailable) {
+    return "Desktop Flow is available on Windows only.";
+  }
+
+  const padConfig = getPadConfig(state);
+  if (!padConfig.workflowName.trim()) {
+    return "Configure a PAD flow name before running this automation.";
+  }
+
+  return null;
+}
+
+function getAutomationEngineNote(state) {
+  if (!state) {
+    return "";
+  }
+
+  const automationEngine = getSelectedAutomationEngine(state);
+  const padConfig = getPadConfig(state);
+  const blockReason = getAutomationEngineBlockReason(state);
+
+  if (automationEngine === "pad") {
+    if (blockReason) {
+      return blockReason;
+    }
+
+    return `Desktop flow ready: ${padConfig.workflowName}`;
+  }
+
+  return "Browser mode active.";
+}
+
+function getManualActionsHint(state) {
+  if (!state) {
+    return "Use these buttons to run the actions manually whenever needed.";
+  }
+
+  return getSelectedAutomationEngine(state) === "pad"
+    ? "Manual actions will launch the configured desktop flow."
+    : "Use these buttons to run the actions manually whenever needed.";
+}
 
 function getStoredCredentials(state) {
   return state && state.storedCredentials
@@ -193,7 +273,21 @@ function collectSettingsPayload() {
   return {
     morningTime,
     eveningTime,
-    showBrowser: stateElements.showBrowser.checked
+    automationEngine: getSelectedAutomationEngineFromForm()
+  };
+}
+
+function getSettingsPreviewState() {
+  if (!currentState) {
+    return null;
+  }
+
+  return {
+    ...currentState,
+    settings: {
+      ...currentState.settings,
+      automationEngine: getSelectedAutomationEngineFromForm()
+    }
   };
 }
 
@@ -205,25 +299,45 @@ function hasSettingsChanged(nextSettings = null) {
   const candidateSettings = nextSettings || collectSettingsPayload();
   return candidateSettings.morningTime !== currentState.settings.morningTime ||
     candidateSettings.eveningTime !== currentState.settings.eveningTime ||
-    candidateSettings.showBrowser !== currentState.settings.showBrowser;
+    candidateSettings.automationEngine !== getSelectedAutomationEngine(currentState);
+}
+
+async function persistSettings() {
+  if (!currentState) {
+    return null;
+  }
+
+  const payload = collectSettingsPayload();
+
+  if (!hasSettingsChanged(payload)) {
+    return currentState;
+  }
+
+  const state = await window.clockBotApi.saveSettings(payload);
+  render(state);
+  return state;
+}
+
+async function flushPendingSettingsSave() {
+  if (saveSettingsTimer) {
+    clearTimeout(saveSettingsTimer);
+    saveSettingsTimer = null;
+  }
+
+  return persistSettings();
 }
 
 async function saveSettingsNow() {
   try {
-    const payload = collectSettingsPayload();
-
-    if (!hasSettingsChanged(payload)) {
-      return;
-    }
-
-    const state = await window.clockBotApi.saveSettings(payload);
-    render(state);
+    return await persistSettings();
   } catch (error) {
     showError(error);
 
     if (currentState) {
       render(currentState);
     }
+
+    return null;
   }
 }
 
@@ -289,6 +403,10 @@ function canStartMonitoring(state) {
     return !state.isRunning;
   }
 
+  if (getAutomationEngineBlockReason(state)) {
+    return false;
+  }
+
   return !state.isRunning && (
     hasCompleteEnteredCredentials() ||
     hasStoredPasswordForCurrentUsername(state)
@@ -297,6 +415,10 @@ function canStartMonitoring(state) {
 
 function canRunManualActions(state) {
   if (!state || state.isRunning) {
+    return false;
+  }
+
+  if (getAutomationEngineBlockReason(state)) {
     return false;
   }
 
@@ -357,6 +479,62 @@ function renderResetScheduleAvailability(state) {
   stateElements.resetScheduleButton.disabled =
     state.settings.morningTime === DEFAULT_MORNING_TIME &&
     state.settings.eveningTime === DEFAULT_EVENING_TIME;
+}
+
+function renderEngineControls(state) {
+  const selectedEngine = getSelectedAutomationEngine(state);
+  const padAvailable = Boolean(state && state.capabilities && state.capabilities.padAvailable);
+
+  stateElements.enginePlaywright.checked = selectedEngine === "playwright";
+  stateElements.enginePad.checked = selectedEngine === "pad";
+  stateElements.engineToggle.dataset.mode = selectedEngine;
+  stateElements.enginePad.disabled = !padAvailable;
+  stateElements.configurePadButton.disabled = !padAvailable;
+  stateElements.configurePadButton.hidden = selectedEngine !== "pad";
+  stateElements.automationEngineNote.textContent = getAutomationEngineNote(state);
+  stateElements.manualActionsHint.textContent = getManualActionsHint(state);
+}
+
+function renderPadConfigDialogStatus() {
+  const workflowName = stateElements.padWorkflowName.value.trim();
+  const environmentId = stateElements.padEnvironmentId.value.trim();
+  const padAvailable = Boolean(currentState && currentState.capabilities && currentState.capabilities.padAvailable);
+
+  if (!padAvailable) {
+    stateElements.padConfigStatus.textContent = "PAD is available on Windows only.";
+    stateElements.padConfigSave.disabled = true;
+    return;
+  }
+
+  if (!workflowName) {
+    stateElements.padConfigStatus.textContent = environmentId
+      ? "Workflow Name is required to use Desktop Flow. Save with this blank to clear PAD settings."
+      : "Save with Workflow Name blank to clear PAD settings.";
+    stateElements.padConfigSave.disabled = false;
+    return;
+  }
+
+  stateElements.padConfigStatus.textContent = "ClockBot will pass requestFilePath, resultFilePath, and runId to this flow.";
+  stateElements.padConfigSave.disabled = false;
+}
+
+function openPadConfigDialog() {
+  if (!currentState) {
+    return;
+  }
+
+  const padConfig = getPadConfig(currentState);
+  stateElements.padWorkflowName.value = padConfig.workflowName || "";
+  stateElements.padEnvironmentId.value = padConfig.environmentId || "";
+  renderPadConfigDialogStatus();
+  stateElements.padConfigDialog.showModal();
+  stateElements.padWorkflowName.focus();
+}
+
+function closePadConfigDialog() {
+  if (stateElements.padConfigDialog.open) {
+    stateElements.padConfigDialog.close();
+  }
 }
 
 function requestWindowFit() {
@@ -429,10 +607,10 @@ function render(state) {
   syncPasswordPlaceholder(state);
   stateElements.morningTime.value = state.settings.morningTime;
   stateElements.eveningTime.value = state.settings.eveningTime;
-  stateElements.showBrowser.checked = state.settings.showBrowser;
 
   renderToggleButton(state);
   renderLogWindowButton(state);
+  renderEngineControls(state);
   renderManualActionAvailability(state);
   renderClearCredentialsAvailability(state);
   renderResetScheduleAvailability(state);
@@ -479,7 +657,10 @@ credentialsForm.addEventListener("submit", async (event) => {
     if (currentState.monitoringEnabled) {
       state = await window.clockBotApi.stopMonitoring();
     } else {
-      if (!canStartMonitoring(currentState)) {
+      const settingsState = await flushPendingSettingsSave();
+      const effectiveState = settingsState || currentState;
+
+      if (!canStartMonitoring(effectiveState)) {
         if (!stateElements.username.value.trim()) {
           stateElements.username.focus();
         } else if (!stateElements.password.value) {
@@ -512,7 +693,23 @@ stateElements.eveningTime.addEventListener("change", () => {
   queueSettingsSave();
 });
 
-stateElements.showBrowser.addEventListener("change", () => {
+stateElements.enginePlaywright.addEventListener("change", () => {
+  const previewState = getSettingsPreviewState();
+  if (previewState) {
+    renderEngineControls(previewState);
+    renderMonitoringButtonAvailability(previewState);
+    renderManualActionAvailability(previewState);
+  }
+  queueSettingsSave();
+});
+
+stateElements.enginePad.addEventListener("change", () => {
+  const previewState = getSettingsPreviewState();
+  if (previewState) {
+    renderEngineControls(previewState);
+    renderMonitoringButtonAvailability(previewState);
+    renderManualActionAvailability(previewState);
+  }
   queueSettingsSave();
 });
 
@@ -549,6 +746,10 @@ stateElements.toggleLogWindowButton.addEventListener("click", async () => {
   } catch (error) {
     showError(error);
   }
+});
+
+stateElements.configurePadButton.addEventListener("click", () => {
+  openPadConfigDialog();
 });
 
 stateElements.closeWindowButton.addEventListener("click", async () => {
@@ -594,7 +795,7 @@ stateElements.resetScheduleButton.addEventListener("click", async () => {
     const state = await window.clockBotApi.saveSettings({
       morningTime: DEFAULT_MORNING_TIME,
       eveningTime: DEFAULT_EVENING_TIME,
-      showBrowser: stateElements.showBrowser.checked
+      automationEngine: getSelectedAutomationEngineFromForm()
     });
     render(state);
   } catch (error) {
@@ -607,9 +808,12 @@ stateElements.resetScheduleButton.addEventListener("click", async () => {
 });
 
 runClockInButton.addEventListener("click", async () => {
+  const selectedEngine = currentState ? getSelectedAutomationEngine(currentState) : DEFAULT_AUTOMATION_ENGINE;
   const confirmed = await showConfirmDialog({
     title: "Run Clock In?",
-    message: "ClockBot will sign in and try to press the attendance button now.",
+    message: selectedEngine === "pad"
+      ? "ClockBot will trigger the configured PAD flow for Clock In now."
+      : "ClockBot will sign in and try to press the attendance button now.",
     confirmLabel: "Run Clock In"
   });
 
@@ -618,6 +822,7 @@ runClockInButton.addEventListener("click", async () => {
   }
 
   try {
+    await flushPendingSettingsSave();
     const state = await window.clockBotApi.runAction({
       action: "clockIn",
       credentials: getEnteredCredentials()
@@ -629,9 +834,12 @@ runClockInButton.addEventListener("click", async () => {
 });
 
 runClockOutButton.addEventListener("click", async () => {
+  const selectedEngine = currentState ? getSelectedAutomationEngine(currentState) : DEFAULT_AUTOMATION_ENGINE;
   const confirmed = await showConfirmDialog({
     title: "Run Clock Out?",
-    message: "ClockBot will sign in and try to press the leave button now.",
+    message: selectedEngine === "pad"
+      ? "ClockBot will trigger the configured PAD flow for Clock Out now."
+      : "ClockBot will sign in and try to press the leave button now.",
     confirmLabel: "Run Clock Out"
   });
 
@@ -640,6 +848,7 @@ runClockOutButton.addEventListener("click", async () => {
   }
 
   try {
+    await flushPendingSettingsSave();
     const state = await window.clockBotApi.runAction({
       action: "clockOut",
       credentials: getEnteredCredentials()
@@ -669,6 +878,44 @@ stateElements.confirmDialog.addEventListener("cancel", (event) => {
 stateElements.confirmDialog.addEventListener("click", (event) => {
   if (event.target === stateElements.confirmDialog) {
     resolveConfirmDialog(false);
+  }
+});
+
+stateElements.padWorkflowName.addEventListener("input", () => {
+  renderPadConfigDialogStatus();
+});
+
+stateElements.padEnvironmentId.addEventListener("input", () => {
+  renderPadConfigDialogStatus();
+});
+
+stateElements.padConfigCancel.addEventListener("click", () => {
+  closePadConfigDialog();
+});
+
+stateElements.padConfigDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closePadConfigDialog();
+});
+
+stateElements.padConfigDialog.addEventListener("click", (event) => {
+  if (event.target === stateElements.padConfigDialog) {
+    closePadConfigDialog();
+  }
+});
+
+stateElements.padConfigForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  try {
+    const state = await window.clockBotApi.savePadConfig({
+      workflowName: stateElements.padWorkflowName.value.trim(),
+      environmentId: stateElements.padEnvironmentId.value.trim()
+    });
+    closePadConfigDialog();
+    render(state);
+  } catch (error) {
+    showError(error);
   }
 });
 

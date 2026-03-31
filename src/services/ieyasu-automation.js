@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const { chromium } = require("playwright-core");
 const { getSystemLocation } = require("./system-location-service");
 const { DEFAULT_ATTENDANCE_URL } = require("./settings-service");
@@ -43,18 +44,58 @@ function resolveAttendanceTarget(attendanceUrl) {
 }
 
 function findBrowserExecutable() {
-  const candidates = [
-    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
-    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
-  ];
+  const envOverride = typeof process.env.CLOCKBOT_BROWSER_PATH === "string"
+    ? process.env.CLOCKBOT_BROWSER_PATH.trim()
+    : "";
+
+  if (envOverride && fs.existsSync(envOverride)) {
+    return envOverride;
+  }
+
+  let candidates;
+
+  if (process.platform === "darwin") {
+    const homeApplications = path.join(os.homedir(), "Applications");
+    candidates = [
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+      "/Applications/Chromium.app/Contents/MacOS/Chromium",
+      path.join(homeApplications, "Google Chrome.app", "Contents", "MacOS", "Google Chrome"),
+      path.join(homeApplications, "Microsoft Edge.app", "Contents", "MacOS", "Microsoft Edge"),
+      path.join(homeApplications, "Chromium.app", "Contents", "MacOS", "Chromium")
+    ];
+  } else if (process.platform === "win32") {
+    candidates = [
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+      "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+      "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+    ];
+  } else {
+    candidates = [
+      "/usr/bin/google-chrome-stable",
+      "/usr/bin/google-chrome",
+      "/usr/bin/microsoft-edge-stable",
+      "/usr/bin/microsoft-edge",
+      "/usr/bin/chromium-browser",
+      "/usr/bin/chromium"
+    ];
+  }
 
   return candidates.find((candidate) => fs.existsSync(candidate)) || null;
 }
 
 function getProfileDirectory() {
-  const root = process.env.APPDATA || process.cwd();
+  let root;
+
+  if (process.platform === "darwin") {
+    root = path.join(os.homedir(), "Library", "Application Support");
+  } else if (process.platform === "win32") {
+    root = process.env.APPDATA || process.cwd();
+  } else {
+    root = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+  }
+
   const profileDirectory = path.join(root, "ClockBot", "automation-profile");
   fs.mkdirSync(profileDirectory, { recursive: true });
   return profileDirectory;
@@ -623,17 +664,17 @@ async function ensureLoggedIn(page, credentials, log, loginUrl) {
   }
 }
 
-async function performAttendanceAction({ action, credentials, showBrowser, attendanceUrl, log }) {
+async function performAttendanceAction({ action, credentials, attendanceUrl, log }) {
   const executablePath = findBrowserExecutable();
 
   if (!executablePath) {
-    throw new Error("Could not find a local Chrome or Edge installation.");
+    throw new Error("Could not find a local Chrome, Edge, or Chromium installation.");
   }
 
   const attendanceTarget = resolveAttendanceTarget(attendanceUrl);
   const context = await chromium.launchPersistentContext(getProfileDirectory(), {
     executablePath,
-    headless: !showBrowser
+    headless: false
   });
 
   try {

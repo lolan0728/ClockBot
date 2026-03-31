@@ -2,6 +2,7 @@ node_modules/
 dist/
 out/
 npm-debug.log*
+.DS_Store
 .electron-cache/
 .electron-builder-cache/
 .npm-cache/

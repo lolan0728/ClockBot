@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("clockBotApi", {
   getState: () => ipcRenderer.invoke("clockbot:get-state"),
   saveSettings: (settings) => ipcRenderer.invoke("clockbot:save-settings", settings),
+  savePadConfig: (config) => ipcRenderer.invoke("clockbot:save-pad-config", config),
   startMonitoring: (credentials) => ipcRenderer.invoke("clockbot:start-monitoring", credentials),
   stopMonitoring: () => ipcRenderer.invoke("clockbot:stop-monitoring"),
   runAction: (payload) => ipcRenderer.invoke("clockbot:run-action", payload),

@@ -1,14 +1,15 @@
 {
   "name": "clockbot",
   "version": "0.1.0",
-  "description": "Windows tray app for IEYASU attendance automation.",
+  "description": "Desktop tray app for IEYASU attendance automation.",
   "author": "ClockBot",
   "main": "src/main.js",
   "productName": "ClockBot",
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "pack:win": "electron-builder --win portable zip --x64"
+    "pack:win": "electron-builder --win portable zip --x64",
+    "pack:mac": "electron-builder --mac zip"
   },
   "build": {
     "appId": "com.clockbot.app",
@@ -40,6 +41,12 @@
       ],
       "icon": "icon.ico",
       "signAndEditExecutable": true
+    },
+    "mac": {
+      "target": [
+        "zip"
+      ],
+      "category": "public.app-category.productivity"
     },
     "portable": {
       "artifactName": "${productName}-portable-${version}.${ext}"
