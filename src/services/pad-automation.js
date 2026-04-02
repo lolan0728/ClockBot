@@ -14,6 +14,10 @@ const VALID_RESULT_STATUSES = new Set([
   "Skipped"
 ]);
 
+function getActionLabel(action) {
+  return action === "clockOut" ? "Clock Out" : "Clock In";
+}
+
 function isPadAvailable() {
   return process.platform === "win32";
 }
@@ -193,7 +197,9 @@ async function waitForPadResult({ action, resultFilePath, progressFilePath, runI
         if (progress.stage !== lastProgressStage || progress.message !== lastProgressMessage) {
           lastProgressStage = progress.stage;
           lastProgressMessage = progress.message;
-          log.info("PAD reported progress.", {
+          const progressSummary = progress.message || progress.stage || "Progress updated.";
+          const stageSuffix = progress.stage ? ` (${progress.stage})` : "";
+          log.info(`${getActionLabel(action)} progress: ${progressSummary}${stageSuffix}`, {
             action,
             runId,
             stage: progress.stage || null,
