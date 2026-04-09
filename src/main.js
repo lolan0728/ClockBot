@@ -58,6 +58,7 @@ let latestRun = null;
 let latestActionProgress = null;
 let monitoringStartedAt = null;
 let monitoringEnabled = false;
+let shouldCenterMainWindowOnNextResize = true;
 let dailyState = createDailyState();
 const TRAY_MENU_ICONS = Object.freeze({
   showWindow: loadTrayMenuIcon(TRAY_MENU_SHOW_WINDOW_ICON_PATH, `
@@ -771,6 +772,7 @@ async function runAttendanceAction(action, metadata = { source: "manual" }) {
 }
 
 function createWindow() {
+  shouldCenterMainWindowOnNextResize = true;
   mainWindow = new BrowserWindow({
     width: 664,
     height: 980,
@@ -779,7 +781,8 @@ function createWindow() {
     minHeight: 760,
     maxWidth: 664,
     maxHeight: 1200,
-    show: true,
+    show: false,
+    center: true,
     frame: false,
     resizable: false,
     minimizable: false,
@@ -821,6 +824,11 @@ function createWindow() {
   });
 
   mainWindow.on("ready-to-show", () => {
+    if (shouldCenterMainWindowOnNextResize) {
+      mainWindow.center();
+    }
+
+    mainWindow.show();
     broadcastState();
   });
 }
@@ -907,6 +915,11 @@ function resizeMainWindowToContent(requestedHeight) {
     width: bounds.width,
     height: nextHeight
   });
+
+  if (shouldCenterMainWindowOnNextResize) {
+    mainWindow.center();
+    shouldCenterMainWindowOnNextResize = false;
+  }
 
   if (logWindow && !logWindow.isDestroyed() && logWindow.isVisible()) {
     positionLogWindowNextToMainWindow();
