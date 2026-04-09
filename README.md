@@ -9,10 +9,9 @@ ClockBot is a local Electron tray app for automating IEYASU clock-in and clock-o
 - System tray support with minimize-to-tray behavior
 - Live status panel and rolling log view
 - Manual `Clock In` and `Clock Out` test actions
-- Selectable execution engines: Playwright or Power Automate Desktop (PAD)
-- Playwright-driven browser automation against `https://f.ieyasu.co/fointl/login`
-- Windows-only PAD integration via a desktop flow contract and `result.json` handoff
-- Optional PAD heartbeat support via `progress.json` for earlier stalled-run detection
+- Chrome Extension-driven automation against `https://f.ieyasu.co/fointl/login`
+- Visual in-page cursor playback for hover, click, and typing motion feedback
+- Extension bridge that reuses your regular Chrome session
 
 ## Run on Windows
 
@@ -28,7 +27,9 @@ ClockBot is a local Electron tray app for automating IEYASU clock-in and clock-o
    powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
    ```
 
-3. Enter your username and password, then click `Start Monitoring`.
+3. Load the unpacked extension from `browser-extension\` in `chrome://extensions`.
+
+4. Enter your username and password, then click `Start Monitoring`.
 
 ## Run on macOS
 
@@ -44,7 +45,9 @@ ClockBot is a local Electron tray app for automating IEYASU clock-in and clock-o
    npm start
    ```
 
-3. On the first run, allow browser and macOS location access if prompted.
+3. Load the unpacked extension from `browser-extension/` in `chrome://extensions`.
+
+4. On the first run, allow browser and macOS location access if prompted.
 
 ## Package for Windows
 
@@ -95,11 +98,9 @@ The scripts in `scripts\` normalize the project path and call `npm.cmd --prefix 
 
 - Saved credentials are encrypted with Electron's system-backed secure storage and are not written in plain text.
 - Settings and logs are stored under Electron's user data directory.
-- The automation looks for a locally installed Chrome, Edge, or Chromium browser.
+- Chrome must be installed locally because the active automation path runs through the ClockBot extension.
 - The browser stays visible during every automation run.
-- PAD is supported on Windows only and requires a separately installed Power Automate Desktop desktop flow.
-- PAD flows can optionally update `progress.json` so ClockBot can fail earlier when a run stalls before `result.json` is written.
+- Load the unpacked extension from `browser-extension/` and keep regular Chrome open while ClockBot is running.
 - On Windows, ClockBot can inject the current system location for the attendance site.
 - On macOS and other platforms, ClockBot falls back to the browser's own location permissions, so the first visible run may require a one-time permission grant.
 - You can override browser detection by setting `CLOCKBOT_BROWSER_PATH` to a local browser executable.
-- PAD integration details are documented in `PAD_INTEGRATION.md`.

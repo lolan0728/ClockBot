@@ -7,19 +7,21 @@ const {
   ipcMain,
   nativeImage,
   Notification,
-  screen
+  screen,
+  shell
 } = require("electron");
 
 const {
   DEFAULT_AUTOMATION_ENGINE,
-  SettingsService,
-  sanitizePadConfig
+  SettingsService
 } = require("./services/settings-service");
 const { CredentialsService } = require("./services/credentials-service");
 const { LogService } = require("./services/log-service");
 const { SchedulerService, toDateKey } = require("./services/scheduler-service");
 const { PunchService } = require("./services/punch-service");
-const { getPadConfigError, isPadAvailable } = require("./services/pad-automation");
+const { getBrowserAvailability } = require("./services/browser-service");
+const { ExtensionBridgeService } = require("./services/extension-bridge-service");
+const { BarkService } = require("./services/bark-service");
 
 const ACTION_LABELS = {
   clockIn: "Clock In",
@@ -42,6 +44,8 @@ let credentialsService = null;
 let logService = null;
 let schedulerService = null;
 let punchService = null;
+let extensionBridgeService = null;
+let barkService = null;
 let runtimeCredentials = null;
 let savedCredentials = null;
 let draftCredentials = {
@@ -51,7 +55,7 @@ let draftCredentials = {
 let isQuitting = false;
 let isRunning = false;
 let latestRun = null;
-let latestPadProgress = null;
+let latestActionProgress = null;
 let monitoringStartedAt = null;
 let monitoringEnabled = false;
 let dailyState = createDailyState();
@@ -76,6 +80,14 @@ const TRAY_MENU_ICONS = Object.freeze({
     <path d="M4 4l8 8M12 4 4 12" />
   `)
 });
+
+function resolveExtensionDirectory() {
+  const appRoot = app.isPackaged
+    ? process.resourcesPath
+    : app.getAppPath();
+
+  return path.join(appRoot, "browser-extension");
+}
 
 function lockWindowZoom(targetWindow) {
   if (!targetWindow || targetWindow.isDestroyed()) {
@@ -129,7 +141,7 @@ function loadTrayMenuIcon(iconPath, fallbackSvgBody) {
 function resetDailyState() {
   dailyState = createDailyState();
   latestRun = null;
-  latestPadProgress = null;
+  latestActionProgress = null;
   logService.info("Reset daily task state for the new day.");
   refreshPendingMessages();
   broadcastState();
@@ -149,10 +161,38 @@ function getCurrentSettings() {
   return settingsService ? settingsService.getSettings() : null;
 }
 
-function getAutomationEngine(settings) {
-  return settings && settings.automationEngine === "pad"
-    ? "pad"
-    : DEFAULT_AUTOMATION_ENGINE;
+function getBrowserAvailabilitySnapshot() {
+  return getBrowserAvailability();
+}
+
+function getEffectiveBrowserPreference() {
+  return "chrome";
+}
+
+function normalizeSettingsForState(settings, browserAvailability = getBrowserAvailabilitySnapshot()) {
+  if (!settings) {
+    return settings;
+  }
+
+  return {
+    ...settings,
+    browserPreference: getEffectiveBrowserPreference(settings, browserAvailability)
+  };
+}
+
+function getRuntimeSettings(settings = getCurrentSettings()) {
+  return normalizeSettingsForState(settings, getBrowserAvailabilitySnapshot());
+}
+
+function getBrowserBlockingReason(settings, browserAvailability = getBrowserAvailabilitySnapshot()) {
+  const browserPreference = getEffectiveBrowserPreference(settings, browserAvailability);
+  const browserState = browserAvailability[browserPreference];
+
+  if (!browserState || !browserState.available) {
+    return "Install Chrome to enable attendance automation.";
+  }
+
+  return null;
 }
 
 function getAutomationEngineBlockingReason(settings) {
@@ -162,25 +202,18 @@ function getAutomationEngineBlockingReason(settings) {
     return null;
   }
 
-  if (getAutomationEngine(effectiveSettings) !== "pad") {
-    return null;
-  }
-
-  return getPadConfigError(effectiveSettings.padConfig);
+  const browserAvailability = getBrowserAvailabilitySnapshot();
+  return getBrowserBlockingReason(effectiveSettings, browserAvailability);
 }
 
 function isAutomationEngineReady(settings) {
   return !getAutomationEngineBlockingReason(settings);
 }
 
-function isPadConfiguredReady(settings) {
-  const effectiveSettings = settings || getCurrentSettings();
-  return isPadAvailable() && !getPadConfigError(effectiveSettings ? effectiveSettings.padConfig : null);
-}
-
 function buildStateSnapshot() {
   ensureCurrentDayState();
-  const settings = getCurrentSettings();
+  const browserAvailability = getBrowserAvailabilitySnapshot();
+  const settings = getRuntimeSettings();
 
   return {
     settings,
@@ -196,12 +229,14 @@ function buildStateSnapshot() {
     logWindowVisible: Boolean(logWindow && !logWindow.isDestroyed() && logWindow.isVisible()),
     dailyState,
     latestRun,
-    latestPadProgress,
+    latestActionProgress,
     logs: logService.getEntries(),
     schedulePreview: schedulerService.getSchedulePreview(),
-    padReady: isPadConfiguredReady(settings),
+    extensionBridge: extensionBridgeService ? extensionBridgeService.getPublicState() : null,
+    bark: barkService ? barkService.getPublicState() : null,
     capabilities: {
-      padAvailable: isPadAvailable()
+      hasSupportedBrowser: Boolean(browserAvailability.chrome && browserAvailability.chrome.available),
+      browsers: browserAvailability
     }
   };
 }
@@ -279,6 +314,26 @@ function showNotification(title, body) {
   notification.show();
 }
 
+function notifyBarkResult(action, status, message, metadata = {}) {
+  if (!barkService) {
+    return;
+  }
+
+  void barkService.sendAttendanceResult({
+    actionLabel: ACTION_LABELS[action] || action,
+    status,
+    message,
+    source: metadata.source || (metadata.scheduledFor ? "scheduled" : undefined),
+    timestamp: metadata.timestamp || new Date().toISOString()
+  }).catch((error) => {
+    logService.warn("ClockBot could not send the Bark notification.", {
+      action,
+      status,
+      message: error && error.message ? error.message : String(error)
+    });
+  });
+}
+
 function updateActionState(action, status, message) {
   dailyState[action] = {
     ...dailyState[action],
@@ -311,7 +366,7 @@ function updateActionProgress(action, progress) {
     lastRunAt: timestamp
   };
 
-  latestPadProgress = {
+  latestActionProgress = {
     action,
     stage: progress.stage || "",
     message: progress.message || "",
@@ -368,7 +423,7 @@ function startMonitoringSession(inputCredentials = {}, options = {}) {
   if (automationError) {
     logService.warn(automationError, {
       source: options.source || "app",
-      automationEngine: getAutomationEngine(getCurrentSettings())
+      automationEngine: DEFAULT_AUTOMATION_ENGINE
     });
     throw new Error(automationError);
   }
@@ -396,7 +451,7 @@ function startMonitoringSession(inputCredentials = {}, options = {}) {
     message: `Monitoring started. Today's schedule is ${settingsService.getSettings().morningTime} and ${settingsService.getSettings().eveningTime}.`,
     timestamp: monitoringStartedAt
   };
-  latestPadProgress = null;
+  latestActionProgress = null;
   logService.info("Credentials stored in memory for the current session.");
   broadcastState();
   return buildStateSnapshot();
@@ -415,7 +470,7 @@ function stopMonitoringSession() {
     message: "Monitoring has been stopped for this session.",
     timestamp: new Date().toISOString()
   };
-  latestPadProgress = null;
+  latestActionProgress = null;
   logService.info("Monitoring stopped for the current session.");
   broadcastState();
   return buildStateSnapshot();
@@ -438,7 +493,7 @@ async function toggleMonitoringFromTray() {
 }
 
 function buildTrayMenu() {
-  const settings = getCurrentSettings();
+  const settings = getRuntimeSettings();
   const monitoringReady = monitoringEnabled || (
     canUseDraftCredentialsForMonitoring() &&
     isAutomationEngineReady(settings)
@@ -518,16 +573,17 @@ async function runAttendanceAction(action, metadata = { source: "manual" }) {
     return buildStateSnapshot();
   }
 
-  const actionSettings = getCurrentSettings();
+  const actionSettings = getRuntimeSettings();
   const automationError = getAutomationEngineBlockingReason(actionSettings);
 
   if (automationError) {
     logService.warn(automationError, {
       ...metadata,
-      automationEngine: getAutomationEngine(actionSettings)
+      automationEngine: DEFAULT_AUTOMATION_ENGINE
     });
     updateActionState(action, "Failed", automationError);
     showNotification("ClockBot", automationError);
+    notifyBarkResult(action, "Failed", automationError, metadata);
     broadcastState();
     return buildStateSnapshot();
   }
@@ -541,12 +597,13 @@ async function runAttendanceAction(action, metadata = { source: "manual" }) {
     logService.warn(message, metadata);
     updateActionState(action, "Failed", message);
     showNotification("ClockBot", message);
+    notifyBarkResult(action, "Failed", message, metadata);
     broadcastState();
     return buildStateSnapshot();
   }
 
   isRunning = true;
-  latestPadProgress = null;
+  latestActionProgress = null;
   updateActionState(action, "Running", `${ACTION_LABELS[action]} is starting...`);
   logService.info(`Starting ${action}.`, metadata);
   broadcastState();
@@ -559,7 +616,7 @@ async function runAttendanceAction(action, metadata = { source: "manual" }) {
       }
     });
     updateActionState(action, result.status, result.message);
-    latestPadProgress = null;
+    latestActionProgress = null;
     logService.info(`${ACTION_LABELS[action]} finished with status ${result.status}.`, {
       ...metadata,
       message: result.message
@@ -570,15 +627,18 @@ async function runAttendanceAction(action, metadata = { source: "manual" }) {
     } else {
       showNotification("ClockBot", `${ACTION_LABELS[action]}: ${result.message}`);
     }
+
+    notifyBarkResult(action, result.status, result.message, metadata);
   } catch (error) {
     const message = error && error.message ? error.message : "Unknown automation error.";
     updateActionState(action, "Failed", message);
-    latestPadProgress = null;
+    latestActionProgress = null;
     logService.error(`${ACTION_LABELS[action]} failed.`, {
       ...metadata,
       message
     });
     showNotification("ClockBot", `${ACTION_LABELS[action]} failed: ${message}`);
+    notifyBarkResult(action, "Failed", message, metadata);
   } finally {
     isRunning = false;
     broadcastState();
@@ -790,14 +850,23 @@ function createTray() {
 function registerIpcHandlers() {
   ipcMain.handle("clockbot:get-state", () => buildStateSnapshot());
 
+  ipcMain.handle("clockbot:get-bark-settings", () => {
+    return barkService
+      ? barkService.getConfig()
+      : {
+        enabled: false,
+        serverOrigin: "https://api.day.app",
+        deviceKey: "",
+        group: "clockbot",
+        iconUrl: ""
+      };
+  });
+
   ipcMain.handle("clockbot:save-settings", (_event, partialSettings) => {
-    const currentSettings = getCurrentSettings();
     const nextSettings = {
       morningTime: partialSettings.morningTime,
       eveningTime: partialSettings.eveningTime,
-      automationEngine: typeof partialSettings.automationEngine === "string"
-        ? partialSettings.automationEngine
-        : currentSettings.automationEngine
+      browserPreference: "chrome"
     };
 
     settingsService.save(nextSettings);
@@ -806,19 +875,6 @@ function registerIpcHandlers() {
     }
     refreshPendingMessages();
     logService.info("Saved app settings.", nextSettings);
-    broadcastState();
-    return buildStateSnapshot();
-  });
-
-  ipcMain.handle("clockbot:save-pad-config", (_event, partialPadConfig) => {
-    const nextPadConfig = sanitizePadConfig(partialPadConfig);
-    settingsService.save({
-      padConfig: nextPadConfig
-    });
-    logService.info("Saved PAD settings.", {
-      workflowName: nextPadConfig.workflowName || null,
-      environmentId: nextPadConfig.environmentId || null
-    });
     broadcastState();
     return buildStateSnapshot();
   });
@@ -860,6 +916,57 @@ function registerIpcHandlers() {
     return buildStateSnapshot();
   });
 
+  ipcMain.handle("clockbot:open-extension-folder", async () => {
+    const extensionDirectory = extensionBridgeService
+      ? extensionBridgeService.getExtensionDirectory()
+      : resolveExtensionDirectory();
+    const openError = await shell.openPath(extensionDirectory);
+
+    if (openError) {
+      throw new Error(`Could not open the Chrome extension folder. ${openError}`);
+    }
+
+    return buildStateSnapshot();
+  });
+
+  ipcMain.handle("clockbot:save-bark-settings", (_event, payload) => {
+    const deviceKey = String(payload && payload.deviceKey ? payload.deviceKey : "").trim();
+    const iconUrl = String(payload && payload.iconUrl ? payload.iconUrl : "").trim();
+
+    if (!deviceKey) {
+      throw new Error("Bark device key is required.");
+    }
+
+    if (iconUrl) {
+      try {
+        const parsed = new URL(iconUrl);
+
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          throw new Error("Bark icon URL must use http or https.");
+        }
+      } catch (error) {
+        throw new Error("Bark icon URL must be a valid http or https address.");
+      }
+    }
+
+    barkService.save({
+      deviceKey,
+      iconUrl
+    });
+    logService.info("Saved Bark notification settings.", {
+      hasIcon: Boolean(iconUrl)
+    });
+    broadcastState();
+    return buildStateSnapshot();
+  });
+
+  ipcMain.handle("clockbot:clear-bark-settings", () => {
+    barkService.clearDeviceKey();
+    logService.info("Cleared the Bark notification device key.");
+    broadcastState();
+    return buildStateSnapshot();
+  });
+
   ipcMain.handle("clockbot:clear-stored-credentials", () => {
     credentialsService.clear();
     savedCredentials = null;
@@ -898,6 +1005,7 @@ function registerIpcHandlers() {
 
 function wireServices() {
   const userDataPath = app.getPath("userData");
+  const extensionDirectory = resolveExtensionDirectory();
   settingsService = new SettingsService(userDataPath);
   settingsService.load();
   credentialsService = new CredentialsService(userDataPath);
@@ -907,11 +1015,19 @@ function wireServices() {
     password: ""
   };
   logService = new LogService(userDataPath);
-  punchService = new PunchService(logService, {
+  extensionBridgeService = new ExtensionBridgeService(logService, {
+    extensionDirectory
+  });
+  barkService = new BarkService(logService, {
     baseDirectory: userDataPath
   });
+  barkService.load();
+  punchService = new PunchService(logService, {
+    baseDirectory: userDataPath,
+    extensionBridgeService
+  });
   schedulerService = new SchedulerService({
-    getSettings: () => settingsService.getSettings(),
+    getSettings: () => getRuntimeSettings(),
     onTrigger: (action, metadata) => runAttendanceAction(action, metadata),
     onMissed: async (action, metadata) => {
       const minutesLate = Math.round(metadata.delayMs / 60000);
@@ -919,6 +1035,7 @@ function wireServices() {
       updateActionState(action, "Skipped", message);
       logService.warn(message, metadata);
       showNotification("ClockBot", message);
+      notifyBarkResult(action, "Skipped", message, metadata);
       broadcastState();
     },
     onDayChanged: () => resetDailyState(),
@@ -926,6 +1043,18 @@ function wireServices() {
   });
 
   logService.on("entry", () => {
+    broadcastState();
+  });
+
+  extensionBridgeService.on("state-changed", () => {
+    broadcastState();
+  });
+
+  void extensionBridgeService.start().catch((error) => {
+    logService.error("ClockBot could not start the Chrome extension bridge.", {
+      message: error && error.message ? error.message : String(error),
+      extensionDirectory
+    });
     broadcastState();
   });
 }
@@ -968,6 +1097,9 @@ app.on("before-quit", () => {
   isQuitting = true;
   if (schedulerService) {
     schedulerService.stop();
+  }
+  if (extensionBridgeService) {
+    void extensionBridgeService.stop();
   }
 });
 

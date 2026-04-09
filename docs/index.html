@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ClockBot Assets</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Aptos", "Segoe UI", sans-serif;
+        background: #f4f0e6;
+        color: #193326;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at top left, rgba(255, 255, 255, 0.78), transparent 28%),
+          linear-gradient(135deg, #f4f0e6 0%, #dbe7db 100%);
+      }
+
+      main {
+        width: min(560px, calc(100vw - 32px));
+        padding: 32px 28px;
+        border-radius: 24px;
+        background: rgba(255, 255, 255, 0.86);
+        border: 1px solid rgba(25, 51, 38, 0.1);
+        box-shadow: 0 22px 56px rgba(39, 58, 47, 0.12);
+      }
+
+      p {
+        margin: 0;
+      }
+
+      .eyebrow {
+        margin-bottom: 12px;
+        color: #245f49;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 32px;
+        line-height: 1;
+      }
+
+      .copy {
+        color: #667465;
+        line-height: 1.5;
+      }
+
+      .asset-card {
+        margin-top: 22px;
+        padding: 18px;
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 246, 241, 0.94));
+        border: 1px solid rgba(25, 51, 38, 0.08);
+      }
+
+      .asset-preview {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 14px;
+      }
+
+      .asset-preview img {
+        width: 96px;
+        height: 96px;
+        border-radius: 22px;
+        box-shadow: 0 12px 24px rgba(25, 51, 38, 0.16);
+      }
+
+      .asset-label {
+        display: grid;
+        gap: 4px;
+      }
+
+      .asset-label strong {
+        font-size: 18px;
+      }
+
+      code,
+      a {
+        color: #245f49;
+      }
+
+      code {
+        display: block;
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(36, 95, 73, 0.08);
+        border: 1px solid rgba(36, 95, 73, 0.1);
+        font-family: "Cascadia Mono", "Consolas", monospace;
+        font-size: 13px;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">ClockBot Assets</p>
+      <h1>Public Icon</h1>
+      <p class="copy">
+        This page exists so the ClockBot icon can be published as a plain HTTPS image URL
+        for Bark notifications or other lightweight integrations.
+      </p>
+
+      <section class="asset-card">
+        <div class="asset-preview">
+          <img src="./clockbot-icon.png" alt="ClockBot icon" />
+          <div class="asset-label">
+            <strong>clockbot-icon.png</strong>
+            <p class="copy">Use the direct image link below as your Bark icon URL.</p>
+          </div>
+        </div>
+        <code>https://YOUR-USERNAME.github.io/YOUR-REPOSITORY/clockbot-icon.png</code>
+      </section>
+    </main>
+  </body>
+</html>

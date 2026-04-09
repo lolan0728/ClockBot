@@ -22,6 +22,7 @@
     },
     "files": [
       "src/**/*",
+      "browser-extension/**/*",
       "package.json"
     ],
     "win": {

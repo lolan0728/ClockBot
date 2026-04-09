@@ -27,22 +27,18 @@
           </p>
           <div class="hero-engine-row">
             <div class="engine-selector-block">
-              <p class="section-kicker">Run Method</p>
-              <div id="engineToggle" class="engine-toggle" role="radiogroup" aria-label="Run Method">
-                <span class="engine-toggle-indicator" aria-hidden="true"></span>
-                <label class="engine-option">
-                  <input id="enginePlaywright" name="automationEngine" type="radio" value="playwright" />
-                  <span>Browser Mode</span>
-                </label>
-                <label class="engine-option">
-                  <input id="enginePad" name="automationEngine" type="radio" value="pad" />
-                  <span>Desktop Flow</span>
-                </label>
+              <div class="engine-heading-row">
+                <div class="engine-chip">
+                  <span class="section-kicker engine-chip-label">Chrome Extension</span>
+                  <span id="extensionConnectionBadge" class="engine-mode-state">Waiting</span>
+                </div>
+                <div class="hero-inline-actions">
+                  <button id="configureBarkButton" type="button" class="secondary panel-action hero-inline-action">Set Bark Push</button>
+                  <button id="openExtensionFolderButton" type="button" class="secondary panel-action hero-inline-action">Open Unpacked Folder</button>
+                </div>
               </div>
-              <div class="hero-meta-row">
-                <p id="automationEngineNote" class="hero-meta"></p>
-                <button id="configurePadButton" type="button" class="inline-link">Configure PAD</button>
-              </div>
+              <p id="automationEngineNote" class="hero-meta engine-note"></p>
+              <p id="barkStatusNote" class="hero-meta bark-note">Bark push is off until you add a device key.</p>
             </div>
           </div>
         </div>
@@ -127,7 +123,7 @@
         </div>
       </section>
 
-      <section class="card">
+      <section class="card manual-actions-card">
         <div class="section-header">
           <div>
             <p class="section-kicker">Control</p>
@@ -154,24 +150,27 @@
       </div>
     </dialog>
 
-    <dialog id="padConfigDialog" class="confirm-dialog">
-      <form id="padConfigForm" class="confirm-dialog-card dialog-form" method="dialog">
-        <p class="section-kicker">Power Automate Desktop</p>
-        <h2>PAD Configuration</h2>
+    <dialog id="barkDialog" class="confirm-dialog">
+      <div class="confirm-dialog-card dialog-form">
+        <p class="section-kicker">Bark Push</p>
+        <h2>Push Settings</h2>
+        <p class="confirm-dialog-message">Paste your Bark device key and, if you want, a custom icon URL. ClockBot will only send basic task updates to your iPhone.</p>
         <label>
-          <span>Workflow Name</span>
-          <input id="padWorkflowName" name="workflowName" type="text" autocomplete="off" />
+          <span>Device Key</span>
+          <input id="barkDeviceKeyInput" type="text" inputmode="text" autocomplete="off" spellcheck="false" />
         </label>
         <label>
-          <span>Environment ID (Optional)</span>
-          <input id="padEnvironmentId" name="environmentId" type="text" autocomplete="off" />
+          <span>Icon URL</span>
+          <input id="barkIconUrlInput" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://..." />
         </label>
-        <p id="padConfigStatus" class="confirm-dialog-message"></p>
+        <p class="dialog-help">Bark custom icons must use an image URL your iPhone can reach.</p>
+        <p id="barkDialogError" class="dialog-error" hidden></p>
         <div class="dialog-actions">
-          <button id="padConfigCancel" type="button" class="secondary">Cancel</button>
-          <button id="padConfigSave" type="submit" class="primary">Save PAD Settings</button>
+          <button id="barkDialogDelete" type="button" class="secondary">Delete</button>
+          <button id="barkDialogCancel" type="button" class="secondary">Cancel</button>
+          <button id="barkDialogSave" type="button" class="primary">Save</button>
         </div>
-      </form>
+      </div>
     </dialog>
 
     <script src="./app.js"></script>

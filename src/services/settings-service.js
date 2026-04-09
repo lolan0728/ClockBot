@@ -1,23 +1,19 @@
 const fs = require("fs");
 const path = require("path");
+const {
+  DEFAULT_BROWSER_PREFERENCE,
+  sanitizeBrowserPreference
+} = require("./browser-service");
 
 const DEFAULT_ATTENDANCE_URL = "https://f.ieyasu.co/fointl/login";
-const DEFAULT_AUTOMATION_ENGINE = "playwright";
-const VALID_AUTOMATION_ENGINES = new Set([
-  "playwright",
-  "pad"
-]);
-const DEFAULT_PAD_CONFIG = Object.freeze({
-  workflowName: "",
-  environmentId: ""
-});
+const DEFAULT_AUTOMATION_ENGINE = "extension";
 
 const DEFAULT_SETTINGS = Object.freeze({
   morningTime: "09:00",
   eveningTime: "18:00",
   attendanceUrl: DEFAULT_ATTENDANCE_URL,
   automationEngine: DEFAULT_AUTOMATION_ENGINE,
-  padConfig: { ...DEFAULT_PAD_CONFIG },
+  browserPreference: DEFAULT_BROWSER_PREFERENCE,
   minimizeToTray: true
 });
 
@@ -42,29 +38,7 @@ function sanitizeAttendanceUrl(candidate) {
 }
 
 function sanitizeAutomationEngine(candidate) {
-  if (typeof candidate !== "string") {
-    return DEFAULT_AUTOMATION_ENGINE;
-  }
-
-  const normalized = candidate.trim().toLowerCase();
-  return VALID_AUTOMATION_ENGINES.has(normalized)
-    ? normalized
-    : DEFAULT_AUTOMATION_ENGINE;
-}
-
-function sanitizePadConfig(candidate) {
-  if (!candidate || typeof candidate !== "object") {
-    return { ...DEFAULT_PAD_CONFIG };
-  }
-
-  return {
-    workflowName: typeof candidate.workflowName === "string"
-      ? candidate.workflowName.trim()
-      : "",
-    environmentId: typeof candidate.environmentId === "string"
-      ? candidate.environmentId.trim()
-      : ""
-  };
+  return DEFAULT_AUTOMATION_ENGINE;
 }
 
 class SettingsService {
@@ -124,7 +98,7 @@ class SettingsService {
 
       next.attendanceUrl = sanitizeAttendanceUrl(candidate.attendanceUrl);
       next.automationEngine = sanitizeAutomationEngine(candidate.automationEngine);
-      next.padConfig = sanitizePadConfig(candidate.padConfig);
+      next.browserPreference = sanitizeBrowserPreference(candidate.browserPreference);
 
       if (typeof candidate.minimizeToTray === "boolean") {
         next.minimizeToTray = candidate.minimizeToTray;
@@ -137,9 +111,9 @@ class SettingsService {
 
 module.exports = {
   DEFAULT_AUTOMATION_ENGINE,
-  DEFAULT_PAD_CONFIG,
+  DEFAULT_BROWSER_PREFERENCE,
   DEFAULT_ATTENDANCE_URL,
   DEFAULT_SETTINGS,
   SettingsService,
-  sanitizePadConfig
+  sanitizeBrowserPreference
 };

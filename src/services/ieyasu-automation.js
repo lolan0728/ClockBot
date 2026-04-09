@@ -4,12 +4,24 @@ const os = require("os");
 const { chromium } = require("playwright-core");
 const { getSystemLocation } = require("./system-location-service");
 const { DEFAULT_ATTENDANCE_URL } = require("./settings-service");
+const {
+  getBrowserLabel,
+  getBrowserProfileState,
+  sanitizeBrowserPreference
+} = require("./browser-service");
 
 const LOGIN_LABEL = "\u30ed\u30b0\u30a4\u30f3";
 const CLOCK_IN_LABEL = "\u51fa\u52e4";
 const CLOCK_OUT_LABEL = "\u9000\u52e4";
 const LOCATION_TIMEOUT_TEXT = "\u4f4d\u7f6e\u60c5\u5831\u53d6\u5f97\u30bf\u30a4\u30e0\u30a2\u30a6\u30c8\u3057\u307e\u3057\u305f";
 const ATTENDANCE_WAIT_TIMEOUT_MS = 90000;
+const PLAYWRIGHT_PROFILE_ENV = "CLOCKBOT_PLAYWRIGHT_PROFILE_DIR";
+const CHROME_PROFILE_DIRECTORY_ENV = "CLOCKBOT_CHROME_PROFILE_DIRECTORY";
+const WRAPPER_ROOT_DIRECTORY_NAME = "browser-profile-wrappers";
+const WRAPPER_DIRECTORY_NAMES = Object.freeze({
+  chrome: "chrome-daily-profile-wrapper-v2",
+  edge: "edge-daily-profile-wrapper"
+});
 const LOGIN_CONTROL_SELECTORS = [
   "button",
   "input[type='button']",
@@ -43,7 +55,7 @@ function resolveAttendanceTarget(attendanceUrl) {
   }
 }
 
-function findBrowserExecutable() {
+function findBrowserExecutable(browserPreference) {
   const envOverride = typeof process.env.CLOCKBOT_BROWSER_PATH === "string"
     ? process.env.CLOCKBOT_BROWSER_PATH.trim()
     : "";
@@ -52,53 +64,463 @@ function findBrowserExecutable() {
     return envOverride;
   }
 
-  let candidates;
-
-  if (process.platform === "darwin") {
-    const homeApplications = path.join(os.homedir(), "Applications");
-    candidates = [
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-      "/Applications/Chromium.app/Contents/MacOS/Chromium",
-      path.join(homeApplications, "Google Chrome.app", "Contents", "MacOS", "Google Chrome"),
-      path.join(homeApplications, "Microsoft Edge.app", "Contents", "MacOS", "Microsoft Edge"),
-      path.join(homeApplications, "Chromium.app", "Contents", "MacOS", "Chromium")
-    ];
-  } else if (process.platform === "win32") {
-    candidates = [
-      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-      "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-      "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
-      "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
-    ];
-  } else {
-    candidates = [
-      "/usr/bin/google-chrome-stable",
-      "/usr/bin/google-chrome",
-      "/usr/bin/microsoft-edge-stable",
-      "/usr/bin/microsoft-edge",
-      "/usr/bin/chromium-browser",
-      "/usr/bin/chromium"
-    ];
+  const browserState = getBrowserProfileState(browserPreference);
+  if (browserState && browserState.executablePath) {
+    return browserState.executablePath;
   }
 
-  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+  return null;
 }
 
-function getProfileDirectory() {
-  let root;
-
-  if (process.platform === "darwin") {
-    root = path.join(os.homedir(), "Library", "Application Support");
-  } else if (process.platform === "win32") {
-    root = process.env.APPDATA || process.cwd();
-  } else {
-    root = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+function getClockBotRootDirectory(baseDirectory) {
+  if (typeof baseDirectory === "string" && baseDirectory.trim()) {
+    return baseDirectory.trim();
   }
 
-  const profileDirectory = path.join(root, "ClockBot", "automation-profile");
-  fs.mkdirSync(profileDirectory, { recursive: true });
-  return profileDirectory;
+  if (process.platform === "darwin") {
+    return path.join(os.homedir(), "Library", "Application Support", "ClockBot");
+  }
+
+  if (process.platform === "win32") {
+    return path.join(process.env.APPDATA || process.cwd(), "ClockBot");
+  }
+
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "ClockBot");
+}
+
+function getSessionSnapshotDirectory(baseDirectory) {
+  return path.join(getClockBotRootDirectory(baseDirectory), "browser-session-snapshots");
+}
+
+function sanitizeFileSegment(segment) {
+  const sanitized = String(segment || "")
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
+
+  return sanitized || "default";
+}
+
+function getSessionSnapshotPath(baseDirectory, browserPreference, profileDirectoryName, siteOrigin) {
+  const origin = new URL(siteOrigin);
+  return path.join(
+    getSessionSnapshotDirectory(baseDirectory),
+    `${sanitizeFileSegment(browserPreference)}-${sanitizeFileSegment(profileDirectoryName)}-${sanitizeFileSegment(origin.hostname)}.json`
+  );
+}
+
+function normalizeStorageEntries(candidate) {
+  if (!candidate || typeof candidate !== "object") {
+    return [];
+  }
+
+  return Object.entries(candidate)
+    .filter(([key]) => typeof key === "string" && key)
+    .map(([name, value]) => ({
+      name,
+      value: String(value)
+    }));
+}
+
+function readSessionSnapshot(snapshotPath) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(snapshotPath, "utf8"));
+
+    if (Array.isArray(parsed)) {
+      return {
+        cookies: parsed,
+        localStorage: [],
+        sessionStorage: []
+      };
+    }
+
+    return {
+      cookies: Array.isArray(parsed?.cookies) ? parsed.cookies : [],
+      localStorage: Array.isArray(parsed?.localStorage)
+        ? parsed.localStorage
+        : normalizeStorageEntries(parsed?.localStorage),
+      sessionStorage: Array.isArray(parsed?.sessionStorage)
+        ? parsed.sessionStorage
+        : normalizeStorageEntries(parsed?.sessionStorage)
+    };
+  } catch (_error) {
+    return {
+      cookies: [],
+      localStorage: [],
+      sessionStorage: []
+    };
+  }
+}
+
+async function restoreSessionSnapshot(context, snapshotPath, siteOrigin, log) {
+  const snapshot = readSessionSnapshot(snapshotPath);
+  const { cookies, localStorage, sessionStorage } = snapshot;
+
+  if (!cookies.length && !localStorage.length && !sessionStorage.length) {
+    return;
+  }
+
+  try {
+    if (cookies.length) {
+      await context.addCookies(cookies);
+    }
+
+    if (localStorage.length || sessionStorage.length) {
+      await context.addInitScript((storageSnapshot) => {
+        const applyEntries = (storage, entries) => {
+          for (const entry of entries) {
+            if (!entry || typeof entry.name !== "string") {
+              continue;
+            }
+
+            storage.setItem(entry.name, typeof entry.value === "string" ? entry.value : String(entry.value));
+          }
+        };
+
+        if (window.location.origin !== storageSnapshot.origin) {
+          return;
+        }
+
+        applyEntries(window.localStorage, storageSnapshot.localStorage);
+        applyEntries(window.sessionStorage, storageSnapshot.sessionStorage);
+      }, {
+        origin: siteOrigin,
+        localStorage,
+        sessionStorage
+      });
+    }
+
+    log.info("Restored saved browser session state.", {
+      cookieCount: cookies.length,
+      localStorageCount: localStorage.length,
+      sessionStorageCount: sessionStorage.length,
+      siteOrigin
+    });
+  } catch (error) {
+    log.warn("Could not restore saved browser session state.", {
+      siteOrigin,
+      message: error && error.message ? error.message : String(error)
+    });
+  }
+}
+
+async function persistSessionSnapshot(context, page, snapshotPath, siteOrigin, log, options = {}) {
+  const { silent = false } = options;
+
+  try {
+    const cookies = await context.cookies([siteOrigin]);
+
+    let localStorage = [];
+    let sessionStorage = [];
+
+    if (page && !page.isClosed() && page.url().startsWith(siteOrigin)) {
+      const storageState = await page.evaluate(() => ({
+        localStorage: Object.entries(window.localStorage).map(([name, value]) => ({ name, value })),
+        sessionStorage: Object.entries(window.sessionStorage).map(([name, value]) => ({ name, value }))
+      }));
+
+      localStorage = Array.isArray(storageState?.localStorage) ? storageState.localStorage : [];
+      sessionStorage = Array.isArray(storageState?.sessionStorage) ? storageState.sessionStorage : [];
+    }
+
+    if (!cookies.length && !localStorage.length && !sessionStorage.length) {
+      return;
+    }
+
+    const serializedSnapshot = JSON.stringify({
+      cookies,
+      localStorage,
+      sessionStorage
+    }, null, 2);
+
+    let existingSnapshot = "";
+    try {
+      existingSnapshot = fs.readFileSync(snapshotPath, "utf8");
+    } catch (_error) {
+      existingSnapshot = "";
+    }
+
+    if (serializedSnapshot === existingSnapshot) {
+      return;
+    }
+
+    fs.mkdirSync(path.dirname(snapshotPath), { recursive: true });
+    fs.writeFileSync(snapshotPath, serializedSnapshot);
+
+    if (!silent) {
+      log.info("Saved browser session state for reuse.", {
+        cookieCount: cookies.length,
+        localStorageCount: localStorage.length,
+        sessionStorageCount: sessionStorage.length,
+        siteOrigin
+      });
+    }
+  } catch (error) {
+    if (!silent) {
+      log.warn("Could not save browser session state.", {
+        siteOrigin,
+        message: error && error.message ? error.message : String(error)
+      });
+    }
+  }
+}
+
+function startSessionStateAutoSave(context, page, snapshotPath, siteOrigin, log) {
+  let stopped = false;
+  let intervalId = null;
+  let pendingSave = Promise.resolve();
+
+  const queueSave = () => {
+    if (stopped) {
+      return pendingSave;
+    }
+
+    pendingSave = pendingSave
+      .then(async () => {
+        if (stopped || !page || page.isClosed()) {
+          return;
+        }
+
+        await persistSessionSnapshot(context, page, snapshotPath, siteOrigin, log, { silent: true });
+      })
+      .catch(() => {});
+
+    return pendingSave;
+  };
+
+  const handleDomReady = () => {
+    void queueSave();
+  };
+
+  const handleFrameNavigated = (frame) => {
+    if (frame === page.mainFrame()) {
+      void queueSave();
+    }
+  };
+
+  page.on("domcontentloaded", handleDomReady);
+  page.on("load", handleDomReady);
+  page.on("framenavigated", handleFrameNavigated);
+
+  intervalId = setInterval(() => {
+    void queueSave();
+  }, 1000);
+
+  if (typeof intervalId.unref === "function") {
+    intervalId.unref();
+  }
+
+  return async () => {
+    stopped = true;
+
+    if (intervalId) {
+      clearInterval(intervalId);
+    }
+
+    page.off("domcontentloaded", handleDomReady);
+    page.off("load", handleDomReady);
+    page.off("framenavigated", handleFrameNavigated);
+  };
+}
+
+function copyFileIfPresent(sourcePath, destinationPath) {
+  if (!sourcePath || !fs.existsSync(sourcePath)) {
+    return;
+  }
+
+  fs.copyFileSync(sourcePath, destinationPath);
+}
+
+function removePathWithoutFollowingLinks(targetPath) {
+  let stats;
+
+  try {
+    stats = fs.lstatSync(targetPath);
+  } catch (_error) {
+    return;
+  }
+
+  if (stats.isSymbolicLink()) {
+    try {
+      fs.rmSync(targetPath, { recursive: false, force: true });
+    } catch (_error) {
+      // Ignore link cleanup failures. Windows can briefly hold reparse points open.
+    }
+    return;
+  }
+
+  if (stats.isDirectory()) {
+    try {
+      for (const entry of fs.readdirSync(targetPath)) {
+        removePathWithoutFollowingLinks(path.join(targetPath, entry));
+      }
+      fs.rmdirSync(targetPath);
+    } catch (_error) {
+      // Ignore locked files and partial cleanup failures.
+    }
+    return;
+  }
+
+  try {
+    fs.unlinkSync(targetPath);
+  } catch (_error) {
+    // Ignore locked files and partial cleanup failures.
+  }
+}
+
+function createProfileLink(linkPath, targetPath) {
+  if (fs.existsSync(linkPath)) {
+    removePathWithoutFollowingLinks(linkPath);
+  }
+
+  fs.symlinkSync(targetPath, linkPath, process.platform === "win32" ? "junction" : "dir");
+}
+
+function getWrapperRootBase(baseDirectory) {
+  return path.join(getClockBotRootDirectory(baseDirectory), WRAPPER_ROOT_DIRECTORY_NAME);
+}
+
+function getPersistentWrapperRoot(baseDirectory, browserPreference) {
+  const wrapperName = WRAPPER_DIRECTORY_NAMES[browserPreference] || `${browserPreference}-daily-profile-wrapper`;
+  return path.join(getWrapperRootBase(baseDirectory), wrapperName);
+}
+
+function resolveRealPath(candidatePath) {
+  try {
+    return fs.realpathSync.native
+      ? fs.realpathSync.native(candidatePath)
+      : fs.realpathSync(candidatePath);
+  } catch (_error) {
+    return null;
+  }
+}
+
+function isLinkPointingToTarget(linkPath, targetPath) {
+  try {
+    const stats = fs.lstatSync(linkPath);
+    if (!stats.isSymbolicLink()) {
+      return false;
+    }
+
+    const resolvedLinkPath = resolveRealPath(linkPath);
+    const resolvedTargetPath = resolveRealPath(targetPath);
+
+    return Boolean(
+      resolvedLinkPath &&
+      resolvedTargetPath &&
+      path.normalize(resolvedLinkPath).toLowerCase() === path.normalize(resolvedTargetPath).toLowerCase()
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
+function ensurePersistentWrapperProfileRoot(baseDirectory, browserPreference, browserProfileState) {
+  const wrapperRoot = getPersistentWrapperRoot(baseDirectory, browserPreference);
+
+  fs.mkdirSync(wrapperRoot, { recursive: true });
+
+  const localStatePath = path.join(wrapperRoot, "Local State");
+  copyFileIfPresent(browserProfileState.localStatePath, localStatePath);
+
+  const linkedProfilePath = path.join(wrapperRoot, browserProfileState.profileDirectoryName);
+  if (fs.existsSync(linkedProfilePath) && !isLinkPointingToTarget(linkedProfilePath, browserProfileState.profilePath)) {
+    removePathWithoutFollowingLinks(linkedProfilePath);
+  }
+
+  if (!fs.existsSync(linkedProfilePath)) {
+    createProfileLink(linkedProfilePath, browserProfileState.profilePath);
+  }
+
+  return wrapperRoot;
+}
+
+function prepareWrapperProfileRoot(baseDirectory, browserPreference) {
+  const browser = sanitizeBrowserPreference(browserPreference);
+  const browserProfileState = getBrowserProfileState(browser);
+
+  if (!browserProfileState || !browserProfileState.available || !browserProfileState.executablePath) {
+    throw new Error(`Could not find ${getBrowserLabel(browser)} on this PC.`);
+  }
+
+  if (!browserProfileState.profilePath) {
+    throw new Error(`Open ${browserProfileState.label} once to create your daily browser profile first.`);
+  }
+
+  const wrapperRoot = ensurePersistentWrapperProfileRoot(baseDirectory, browser, browserProfileState);
+
+  return {
+    browserLabel: browserProfileState.label,
+    executablePath: browserProfileState.executablePath,
+    persistentProfileRoot: wrapperRoot,
+    profileDirectoryName: browserProfileState.profileDirectoryName
+  };
+}
+
+function resolveProfileLaunchTarget(baseDirectory, browserPreference) {
+  const envOverride = typeof process.env[PLAYWRIGHT_PROFILE_ENV] === "string"
+    ? process.env[PLAYWRIGHT_PROFILE_ENV].trim()
+    : "";
+  const executablePath = findBrowserExecutable(browserPreference);
+
+  if (!executablePath) {
+    throw new Error(`Could not find ${getBrowserLabel(browserPreference)} on this PC.`);
+  }
+
+  if (envOverride) {
+    ensureWritableDirectory(envOverride);
+    return {
+      browserLabel: getBrowserLabel(browserPreference),
+      executablePath,
+      persistentProfileRoot: envOverride,
+      profileDirectoryName: null
+    };
+  }
+
+  return prepareWrapperProfileRoot(baseDirectory, browserPreference);
+}
+
+function ensureWritableDirectory(directoryPath, options = {}) {
+  const { throwOnFailure = true } = options;
+
+  try {
+    fs.mkdirSync(directoryPath, { recursive: true });
+    const probePath = path.join(
+      directoryPath,
+      `.clockbot-write-probe-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    );
+
+    fs.writeFileSync(probePath, "");
+    fs.unlinkSync(probePath);
+    return true;
+  } catch (error) {
+    if (!throwOnFailure) {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+function getProfileDirectoryLaunchArguments(persistentProfileRoot, profileDirectoryName) {
+  const requestedProfileDirectory = typeof process.env[CHROME_PROFILE_DIRECTORY_ENV] === "string"
+    ? process.env[CHROME_PROFILE_DIRECTORY_ENV].trim()
+    : "";
+  const resolvedProfileDirectory = requestedProfileDirectory || profileDirectoryName;
+
+  if (!resolvedProfileDirectory) {
+    return [];
+  }
+
+  const requestedProfilePath = path.join(persistentProfileRoot, resolvedProfileDirectory);
+  if (!fs.existsSync(requestedProfilePath)) {
+    console.warn(
+      `Configured browser profile directory "${resolvedProfileDirectory}" does not exist under ${persistentProfileRoot}; ` +
+      `falling back to Chromium default profile selection.`
+    );
+    return [];
+  }
+
+  return [`--profile-directory=${resolvedProfileDirectory}`];
 }
 
 function isAlreadyClosedError(error) {
@@ -664,18 +1086,34 @@ async function ensureLoggedIn(page, credentials, log, loginUrl) {
   }
 }
 
-async function performAttendanceAction({ action, credentials, attendanceUrl, log }) {
-  const executablePath = findBrowserExecutable();
-
-  if (!executablePath) {
-    throw new Error("Could not find a local Chrome, Edge, or Chromium installation.");
-  }
-
+async function performAttendanceAction({ action, credentials, attendanceUrl, browserPreference, baseDirectory, log }) {
   const attendanceTarget = resolveAttendanceTarget(attendanceUrl);
-  const context = await chromium.launchPersistentContext(getProfileDirectory(), {
-    executablePath,
-    headless: false
+  const resolvedBrowserPreference = sanitizeBrowserPreference(browserPreference);
+  const launchTarget = resolveProfileLaunchTarget(baseDirectory, resolvedBrowserPreference);
+  const sessionSnapshotPath = getSessionSnapshotPath(
+    baseDirectory,
+    resolvedBrowserPreference,
+    launchTarget.profileDirectoryName || "Default",
+    attendanceTarget.siteOrigin
+  );
+  const launchArguments = getProfileDirectoryLaunchArguments(
+    launchTarget.persistentProfileRoot,
+    launchTarget.profileDirectoryName
+  );
+
+  log.info(`Launching ${launchTarget.browserLabel} with the daily browser profile.`, {
+    action,
+    browserPreference: resolvedBrowserPreference,
+    profileDirectoryName: launchTarget.profileDirectoryName || null,
+    persistentProfileRoot: launchTarget.persistentProfileRoot
   });
+
+  const context = await chromium.launchPersistentContext(launchTarget.persistentProfileRoot, {
+    executablePath: launchTarget.executablePath,
+    headless: false,
+    ...(launchArguments.length ? { args: launchArguments } : {})
+  });
+  let stopSessionStateAutoSave = async () => {};
 
   try {
     await context.grantPermissions(["geolocation"], { origin: attendanceTarget.siteOrigin });
@@ -683,14 +1121,25 @@ async function performAttendanceAction({ action, credentials, attendanceUrl, log
     if (systemLocation) {
       await context.setGeolocation(systemLocation);
     }
+    await restoreSessionSnapshot(context, sessionSnapshotPath, attendanceTarget.siteOrigin, log);
     const existingPage = context.pages()[0];
     const page = existingPage || await context.newPage();
+    stopSessionStateAutoSave = startSessionStateAutoSave(
+      context,
+      page,
+      sessionSnapshotPath,
+      attendanceTarget.siteOrigin,
+      log
+    );
+    await persistSessionSnapshot(context, page, sessionSnapshotPath, attendanceTarget.siteOrigin, log);
 
     log.info(`Opening IEYASU login page for ${action}.`);
     await ensureLoggedIn(page, credentials, log, attendanceTarget.loginUrl);
+    await persistSessionSnapshot(context, page, sessionSnapshotPath, attendanceTarget.siteOrigin, log);
 
     const attendanceWaitResult = await waitForAttendanceControls(page, log, action);
     const attendanceState = attendanceWaitResult.state;
+    await persistSessionSnapshot(context, page, sessionSnapshotPath, attendanceTarget.siteOrigin, log);
     log.info(`Login flow reached ${page.url()}.`, {
       action,
       visibleControls: attendanceState.visibleControls,
@@ -753,6 +1202,8 @@ async function performAttendanceAction({ action, credentials, attendanceUrl, log
       throw new Error(`The ${action} action did not produce a confirmed state change.`);
     }
 
+    await persistSessionSnapshot(context, page, sessionSnapshotPath, attendanceTarget.siteOrigin, log);
+
     return {
       status: "Success",
       message: action === "clockIn" ? "Clock In completed successfully." : "Clock Out completed successfully."
@@ -764,6 +1215,7 @@ async function performAttendanceAction({ action, credentials, attendanceUrl, log
 
     throw error;
   } finally {
+    await stopSessionStateAutoSave();
     await closeQuietly(() => context.close(), log, "browser context");
   }
 }

@@ -60,7 +60,8 @@ body::before {
 }
 
 .main-window-body {
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .main-window-body .window-bar {
@@ -276,98 +277,122 @@ h3 {
 
 .hero-engine-row {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
   gap: 14px;
-  margin-top: 16px;
+  margin-top: 12px;
 }
 
 .engine-selector-block {
   display: grid;
-  gap: 8px;
+  gap: 0;
+  min-width: 0;
+  width: 100%;
+}
+
+.engine-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.engine-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(36, 95, 73, 0.09);
+  border: 1px solid rgba(36, 95, 73, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
   min-width: 0;
 }
 
-.engine-toggle {
-  position: relative;
-  display: inline-grid;
-  grid-template-columns: repeat(2, minmax(108px, 1fr));
-  align-items: stretch;
-  gap: 6px;
-  padding: 4px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.62);
-  border: 1px solid rgba(36, 95, 73, 0.14);
-  width: fit-content;
-  overflow: hidden;
+.engine-chip-label {
+  color: var(--primary-strong);
+  white-space: nowrap;
 }
 
-.engine-toggle-indicator {
-  position: absolute;
-  top: 4px;
-  bottom: 4px;
-  left: 4px;
-  width: calc(50% - 7px);
-  border-radius: 999px;
-  background: var(--primary);
-  box-shadow: 0 8px 18px rgba(36, 95, 73, 0.2);
-  transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease;
-  pointer-events: none;
-}
-
-.engine-toggle[data-mode="pad"] .engine-toggle-indicator {
-  transform: translateX(calc(100% + 6px));
-}
-
-.engine-option {
-  position: relative;
-  display: inline-flex;
-  z-index: 1;
-}
-
-.engine-option input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.engine-option span {
+.engine-mode-state {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 0;
-  min-height: 34px;
-  padding: 0 14px;
+  min-height: 28px;
+  padding: 0 10px;
   border-radius: 999px;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(36, 95, 73, 0.12);
   color: var(--primary-strong);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  transition: color 180ms ease, opacity 120ms ease;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
-.engine-option input:checked + span {
-  color: #fff;
-}
-
-.engine-option input:disabled + span {
-  cursor: not-allowed;
-  opacity: 0.5;
+.engine-mode-state.connected {
+  background: rgba(36, 115, 74, 0.14);
+  color: var(--success);
+  border-color: rgba(36, 115, 74, 0.16);
 }
 
 .hero-meta {
-  min-height: 18px;
+  display: block;
+  min-height: 0;
   font-size: 12px;
   line-height: 1.4;
   color: var(--muted);
 }
 
-.hero-meta-row {
+.engine-note {
+  max-width: 420px;
+}
+
+.hero-inline-action {
+  min-height: 28px;
+  padding: 0 11px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.hero-inline-action.secondary {
+  background: rgba(255, 255, 255, 0.66);
+  border-color: rgba(36, 95, 73, 0.12);
+}
+
+.hero-inline-action.secondary:hover {
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.hero-inline-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.bark-note {
+  margin-top: 6px;
+}
+
+.manual-actions-card {
+  padding-bottom: 10px;
+}
+
+.manual-actions-card .section-header {
+  margin-bottom: 10px;
+}
+
+.manual-actions-card .button-row {
+  margin-bottom: 0;
+}
+
+#manualActionsHint {
+  min-height: 0;
+  margin-top: 10px;
 }
 
 .card {
@@ -614,6 +639,7 @@ button.inline-link {
   line-height: 1.4;
   text-decoration: underline;
   text-underline-offset: 0.18em;
+  justify-self: start;
 }
 
 button.inline-link:hover {
@@ -889,11 +915,31 @@ button:disabled {
   width: 100%;
 }
 
+.dialog-error {
+  min-height: 18px;
+  margin-top: -2px;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.dialog-help {
+  margin-top: -4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 4px;
+}
+
+#barkDialogDelete {
+  margin-right: auto;
 }
 
 @media (max-width: 620px) {
@@ -920,24 +966,19 @@ button:disabled {
 
   .hero-engine-row {
     flex-direction: column;
-    align-items: stretch;
   }
 
   .hero-topline {
     justify-content: flex-start;
   }
 
+  .engine-heading-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
   .hero-log-button {
     width: fit-content;
-  }
-
-  .engine-toggle {
-    width: 100%;
-  }
-
-  .engine-option span {
-    min-width: 0;
-    width: 100%;
   }
 
   .hero,

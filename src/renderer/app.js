@@ -3,19 +3,12 @@ const stateElements = {
   password: document.getElementById("password"),
   morningTime: document.getElementById("morningTime"),
   eveningTime: document.getElementById("eveningTime"),
-  engineToggle: document.getElementById("engineToggle"),
-  enginePlaywright: document.getElementById("enginePlaywright"),
-  enginePad: document.getElementById("enginePad"),
+  extensionConnectionBadge: document.getElementById("extensionConnectionBadge"),
   automationEngineNote: document.getElementById("automationEngineNote"),
-  configurePadButton: document.getElementById("configurePadButton"),
+  configureBarkButton: document.getElementById("configureBarkButton"),
+  barkStatusNote: document.getElementById("barkStatusNote"),
+  openExtensionFolderButton: document.getElementById("openExtensionFolderButton"),
   manualActionsHint: document.getElementById("manualActionsHint"),
-  padConfigDialog: document.getElementById("padConfigDialog"),
-  padConfigForm: document.getElementById("padConfigForm"),
-  padWorkflowName: document.getElementById("padWorkflowName"),
-  padEnvironmentId: document.getElementById("padEnvironmentId"),
-  padConfigStatus: document.getElementById("padConfigStatus"),
-  padConfigCancel: document.getElementById("padConfigCancel"),
-  padConfigSave: document.getElementById("padConfigSave"),
   clearCredentialsButton: document.getElementById("clearCredentialsButton"),
   resetScheduleButton: document.getElementById("resetScheduleButton"),
   confirmDialog: document.getElementById("confirmDialog"),
@@ -31,7 +24,14 @@ const stateElements = {
   clockOutMeta: document.getElementById("clockOutMeta"),
   nextRunSummary: document.getElementById("nextRunSummary"),
   toggleLogWindowButton: document.getElementById("toggleLogWindowButton"),
-  closeWindowButton: document.getElementById("closeWindowButton")
+  closeWindowButton: document.getElementById("closeWindowButton"),
+  barkDialog: document.getElementById("barkDialog"),
+  barkDeviceKeyInput: document.getElementById("barkDeviceKeyInput"),
+  barkIconUrlInput: document.getElementById("barkIconUrlInput"),
+  barkDialogError: document.getElementById("barkDialogError"),
+  barkDialogDelete: document.getElementById("barkDialogDelete"),
+  barkDialogCancel: document.getElementById("barkDialogCancel"),
+  barkDialogSave: document.getElementById("barkDialogSave")
 };
 
 const credentialsForm = document.getElementById("credentialsForm");
@@ -53,22 +53,83 @@ const draftCredentials = {
 const TIME_HELP_TEXT = "Use 24-hour time in HH:MM format, for example 09:00.";
 const DEFAULT_MORNING_TIME = "09:00";
 const DEFAULT_EVENING_TIME = "18:00";
-const DEFAULT_AUTOMATION_ENGINE = "playwright";
+const DEFAULT_BROWSER_PREFERENCE = "chrome";
 
-function getSelectedAutomationEngine(state) {
-  return state && state.settings && state.settings.automationEngine === "pad"
-    ? "pad"
-    : DEFAULT_AUTOMATION_ENGINE;
+function getBrowserAvailabilityState(state) {
+  return state && state.capabilities && state.capabilities.browsers
+    ? state.capabilities.browsers
+    : {
+      chrome: { id: "chrome", label: "Chrome", available: false, profileAvailable: false }
+    };
 }
 
-function getSelectedAutomationEngineFromForm() {
-  return stateElements.enginePad.checked ? "pad" : DEFAULT_AUTOMATION_ENGINE;
+function getExtensionBridgeState(state) {
+  return state && state.extensionBridge
+    ? state.extensionBridge
+    : {
+      connected: false,
+      status: "waiting",
+      extensionDirectory: "",
+      lastSeenAt: null
+    };
 }
 
-function getPadConfig(state) {
-  return state && state.settings && state.settings.padConfig
-    ? state.settings.padConfig
-    : { workflowName: "", environmentId: "" };
+function getBarkState(state) {
+  return state && state.bark
+    ? state.bark
+    : {
+      enabled: false,
+      configured: false,
+      hasIcon: false
+    };
+}
+
+function hasAnySupportedBrowser(state) {
+  const browserAvailability = getBrowserAvailabilityState(state);
+  return Boolean(browserAvailability.chrome && browserAvailability.chrome.available);
+}
+
+function getBrowserLabel() {
+  return "Chrome";
+}
+
+function getSelectedBrowserPreference() {
+  return DEFAULT_BROWSER_PREFERENCE;
+}
+
+function getSelectedBrowserPreferenceFromForm() {
+  return DEFAULT_BROWSER_PREFERENCE;
+}
+
+function getSelectedBrowserState(state) {
+  const browserAvailability = getBrowserAvailabilityState(state);
+
+  return browserAvailability.chrome || {
+    id: DEFAULT_BROWSER_PREFERENCE,
+    label: getBrowserLabel(),
+    available: false,
+    profileAvailable: false
+  };
+}
+
+function getGlobalBrowserBlockReason(state) {
+  return hasAnySupportedBrowser(state)
+    ? null
+    : "Install Chrome to enable attendance automation.";
+}
+
+function getExtensionBrowserBlockReason(state) {
+  const globalBrowserReason = getGlobalBrowserBlockReason(state);
+  if (globalBrowserReason) {
+    return globalBrowserReason;
+  }
+
+  const browserState = getSelectedBrowserState(state);
+  if (!browserState.available) {
+    return `${browserState.label} is not installed on this PC.`;
+  }
+
+  return null;
 }
 
 function getAutomationEngineBlockReason(state) {
@@ -76,20 +137,7 @@ function getAutomationEngineBlockReason(state) {
     return null;
   }
 
-  if (getSelectedAutomationEngine(state) !== "pad") {
-    return null;
-  }
-
-  if (!state.capabilities || !state.capabilities.padAvailable) {
-    return "Desktop Flow is available on Windows only.";
-  }
-
-  const padConfig = getPadConfig(state);
-  if (!padConfig.workflowName.trim()) {
-    return "Configure a PAD flow name before running this automation.";
-  }
-
-  return null;
+  return getExtensionBrowserBlockReason(state);
 }
 
 function getAutomationEngineNote(state) {
@@ -97,19 +145,18 @@ function getAutomationEngineNote(state) {
     return "";
   }
 
-  const automationEngine = getSelectedAutomationEngine(state);
-  const padConfig = getPadConfig(state);
   const blockReason = getAutomationEngineBlockReason(state);
 
-  if (automationEngine === "pad") {
-    if (blockReason) {
-      return blockReason;
-    }
-
-    return `Desktop flow ready: ${padConfig.workflowName}`;
+  if (blockReason) {
+    return blockReason;
   }
 
-  return "Browser mode active.";
+  const extensionBridge = getExtensionBridgeState(state);
+  if (extensionBridge.connected) {
+    return "Chrome Extension ready. ClockBot will use your regular Chrome session.";
+  }
+
+  return "Chrome Extension mode. Load the unpacked extension and keep Chrome open.";
 }
 
 function getManualActionsHint(state) {
@@ -117,9 +164,12 @@ function getManualActionsHint(state) {
     return "Use these buttons to run the actions manually whenever needed.";
   }
 
-  return getSelectedAutomationEngine(state) === "pad"
-    ? "Manual actions will launch the configured desktop flow."
-    : "Use these buttons to run the actions manually whenever needed.";
+  const globalBrowserReason = getGlobalBrowserBlockReason(state);
+  if (globalBrowserReason) {
+    return globalBrowserReason;
+  }
+
+  return "Manual actions run through the ClockBot extension in regular Chrome.";
 }
 
 function getStoredCredentials(state) {
@@ -223,6 +273,32 @@ function showConfirmDialog({
   });
 }
 
+function setBarkDialogError(message = "") {
+  const nextMessage = String(message || "").trim();
+  stateElements.barkDialogError.textContent = nextMessage;
+  stateElements.barkDialogError.hidden = !nextMessage;
+}
+
+function closeBarkDialog() {
+  if (stateElements.barkDialog.open) {
+    stateElements.barkDialog.close();
+  }
+
+  setBarkDialogError("");
+}
+
+async function openBarkDialog() {
+  const barkSettings = await window.clockBotApi.getBarkSettings();
+
+  stateElements.barkDeviceKeyInput.value = barkSettings.deviceKey || "";
+  stateElements.barkIconUrlInput.value = barkSettings.iconUrl || "";
+  stateElements.barkDialogDelete.hidden = !barkSettings.deviceKey;
+  setBarkDialogError("");
+  stateElements.barkDialog.showModal();
+  stateElements.barkDeviceKeyInput.focus();
+  stateElements.barkDeviceKeyInput.select();
+}
+
 function normalizeTimeValue(value) {
   const trimmed = String(value || "").trim();
 
@@ -273,21 +349,7 @@ function collectSettingsPayload() {
   return {
     morningTime,
     eveningTime,
-    automationEngine: getSelectedAutomationEngineFromForm()
-  };
-}
-
-function getSettingsPreviewState() {
-  if (!currentState) {
-    return null;
-  }
-
-  return {
-    ...currentState,
-    settings: {
-      ...currentState.settings,
-      automationEngine: getSelectedAutomationEngineFromForm()
-    }
+    browserPreference: getSelectedBrowserPreferenceFromForm()
   };
 }
 
@@ -299,7 +361,7 @@ function hasSettingsChanged(nextSettings = null) {
   const candidateSettings = nextSettings || collectSettingsPayload();
   return candidateSettings.morningTime !== currentState.settings.morningTime ||
     candidateSettings.eveningTime !== currentState.settings.eveningTime ||
-    candidateSettings.automationEngine !== getSelectedAutomationEngine(currentState);
+    candidateSettings.browserPreference !== getSelectedBrowserPreference(currentState);
 }
 
 async function persistSettings() {
@@ -482,59 +544,24 @@ function renderResetScheduleAvailability(state) {
 }
 
 function renderEngineControls(state) {
-  const selectedEngine = getSelectedAutomationEngine(state);
-  const padAvailable = Boolean(state && state.capabilities && state.capabilities.padAvailable);
+  const barkState = getBarkState(state);
 
-  stateElements.enginePlaywright.checked = selectedEngine === "playwright";
-  stateElements.enginePad.checked = selectedEngine === "pad";
-  stateElements.engineToggle.dataset.mode = selectedEngine;
-  stateElements.enginePad.disabled = !padAvailable;
-  stateElements.configurePadButton.disabled = !padAvailable;
-  stateElements.configurePadButton.hidden = selectedEngine !== "pad";
+  stateElements.configureBarkButton.disabled = !state;
+  stateElements.openExtensionFolderButton.disabled = !state;
   stateElements.automationEngineNote.textContent = getAutomationEngineNote(state);
-  stateElements.manualActionsHint.textContent = getManualActionsHint(state);
-}
+  stateElements.configureBarkButton.textContent = barkState.configured
+    ? "Edit Bark Push"
+    : "Set Bark Push";
+  stateElements.barkStatusNote.textContent = barkState.configured
+    ? barkState.hasIcon
+      ? "Bark push is ready, with a custom icon."
+      : "Bark push is ready for iPhone notifications."
+    : "Bark push is off until you add a device key.";
 
-function renderPadConfigDialogStatus() {
-  const workflowName = stateElements.padWorkflowName.value.trim();
-  const environmentId = stateElements.padEnvironmentId.value.trim();
-  const padAvailable = Boolean(currentState && currentState.capabilities && currentState.capabilities.padAvailable);
-
-  if (!padAvailable) {
-    stateElements.padConfigStatus.textContent = "PAD is available on Windows only.";
-    stateElements.padConfigSave.disabled = true;
-    return;
-  }
-
-  if (!workflowName) {
-    stateElements.padConfigStatus.textContent = environmentId
-      ? "Workflow Name is required to use Desktop Flow. Save with this blank to clear PAD settings."
-      : "Save with Workflow Name blank to clear PAD settings.";
-    stateElements.padConfigSave.disabled = false;
-    return;
-  }
-
-  stateElements.padConfigStatus.textContent = "ClockBot will pass requestFilePath, resultFilePath, and runId to this flow.";
-  stateElements.padConfigSave.disabled = false;
-}
-
-function openPadConfigDialog() {
-  if (!currentState) {
-    return;
-  }
-
-  const padConfig = getPadConfig(currentState);
-  stateElements.padWorkflowName.value = padConfig.workflowName || "";
-  stateElements.padEnvironmentId.value = padConfig.environmentId || "";
-  renderPadConfigDialogStatus();
-  stateElements.padConfigDialog.showModal();
-  stateElements.padWorkflowName.focus();
-}
-
-function closePadConfigDialog() {
-  if (stateElements.padConfigDialog.open) {
-    stateElements.padConfigDialog.close();
-  }
+  const extensionBridge = getExtensionBridgeState(state);
+  const badgeText = extensionBridge.connected ? "Connected" : "Waiting";
+  stateElements.extensionConnectionBadge.textContent = badgeText;
+  stateElements.extensionConnectionBadge.classList.toggle("connected", extensionBridge.connected);
 }
 
 function requestWindowFit() {
@@ -611,6 +638,7 @@ function render(state) {
   renderToggleButton(state);
   renderLogWindowButton(state);
   renderEngineControls(state);
+  stateElements.manualActionsHint.textContent = getManualActionsHint(state);
   renderManualActionAvailability(state);
   renderClearCredentialsAvailability(state);
   renderResetScheduleAvailability(state);
@@ -693,26 +721,6 @@ stateElements.eveningTime.addEventListener("change", () => {
   queueSettingsSave();
 });
 
-stateElements.enginePlaywright.addEventListener("change", () => {
-  const previewState = getSettingsPreviewState();
-  if (previewState) {
-    renderEngineControls(previewState);
-    renderMonitoringButtonAvailability(previewState);
-    renderManualActionAvailability(previewState);
-  }
-  queueSettingsSave();
-});
-
-stateElements.enginePad.addEventListener("change", () => {
-  const previewState = getSettingsPreviewState();
-  if (previewState) {
-    renderEngineControls(previewState);
-    renderMonitoringButtonAvailability(previewState);
-    renderManualActionAvailability(previewState);
-  }
-  queueSettingsSave();
-});
-
 stateElements.username.addEventListener("input", () => {
   const nextUsername = stateElements.username.value;
   const usernameChanged = nextUsername !== draftCredentials.username;
@@ -748,8 +756,21 @@ stateElements.toggleLogWindowButton.addEventListener("click", async () => {
   }
 });
 
-stateElements.configurePadButton.addEventListener("click", () => {
-  openPadConfigDialog();
+stateElements.openExtensionFolderButton.addEventListener("click", async () => {
+  try {
+    const state = await window.clockBotApi.openExtensionFolder();
+    render(state);
+  } catch (error) {
+    showError(error);
+  }
+});
+
+stateElements.configureBarkButton.addEventListener("click", async () => {
+  try {
+    await openBarkDialog();
+  } catch (error) {
+    showError(error);
+  }
 });
 
 stateElements.closeWindowButton.addEventListener("click", async () => {
@@ -795,7 +816,7 @@ stateElements.resetScheduleButton.addEventListener("click", async () => {
     const state = await window.clockBotApi.saveSettings({
       morningTime: DEFAULT_MORNING_TIME,
       eveningTime: DEFAULT_EVENING_TIME,
-      automationEngine: getSelectedAutomationEngineFromForm()
+      browserPreference: getSelectedBrowserPreferenceFromForm()
     });
     render(state);
   } catch (error) {
@@ -808,12 +829,10 @@ stateElements.resetScheduleButton.addEventListener("click", async () => {
 });
 
 runClockInButton.addEventListener("click", async () => {
-  const selectedEngine = currentState ? getSelectedAutomationEngine(currentState) : DEFAULT_AUTOMATION_ENGINE;
+  const selectedBrowserLabel = getBrowserLabel();
   const confirmed = await showConfirmDialog({
     title: "Run Clock In?",
-    message: selectedEngine === "pad"
-      ? "ClockBot will trigger the configured PAD flow for Clock In now."
-      : "ClockBot will sign in and try to press the attendance button now.",
+    message: `ClockBot will open ${selectedBrowserLabel} and ask the Chrome extension to complete Clock In with your everyday session now.`,
     confirmLabel: "Run Clock In"
   });
 
@@ -834,12 +853,10 @@ runClockInButton.addEventListener("click", async () => {
 });
 
 runClockOutButton.addEventListener("click", async () => {
-  const selectedEngine = currentState ? getSelectedAutomationEngine(currentState) : DEFAULT_AUTOMATION_ENGINE;
+  const selectedBrowserLabel = getBrowserLabel();
   const confirmed = await showConfirmDialog({
     title: "Run Clock Out?",
-    message: selectedEngine === "pad"
-      ? "ClockBot will trigger the configured PAD flow for Clock Out now."
-      : "ClockBot will sign in and try to press the leave button now.",
+    message: `ClockBot will open ${selectedBrowserLabel} and ask the Chrome extension to complete Clock Out with your everyday session now.`,
     confirmLabel: "Run Clock Out"
   });
 
@@ -881,41 +898,62 @@ stateElements.confirmDialog.addEventListener("click", (event) => {
   }
 });
 
-stateElements.padWorkflowName.addEventListener("input", () => {
-  renderPadConfigDialogStatus();
-});
+stateElements.barkDialogSave.addEventListener("click", async () => {
+  const deviceKey = stateElements.barkDeviceKeyInput.value.trim();
+  const iconUrl = stateElements.barkIconUrlInput.value.trim();
 
-stateElements.padEnvironmentId.addEventListener("input", () => {
-  renderPadConfigDialogStatus();
-});
+  if (!deviceKey) {
+    setBarkDialogError("Device key is required.");
+    stateElements.barkDeviceKeyInput.focus();
+    return;
+  }
 
-stateElements.padConfigCancel.addEventListener("click", () => {
-  closePadConfigDialog();
-});
-
-stateElements.padConfigDialog.addEventListener("cancel", (event) => {
-  event.preventDefault();
-  closePadConfigDialog();
-});
-
-stateElements.padConfigDialog.addEventListener("click", (event) => {
-  if (event.target === stateElements.padConfigDialog) {
-    closePadConfigDialog();
+  try {
+    const state = await window.clockBotApi.saveBarkSettings({
+      deviceKey,
+      iconUrl
+    });
+    closeBarkDialog();
+    render(state);
+  } catch (error) {
+    setBarkDialogError(error && error.message ? error.message : "Bark settings could not be saved.");
   }
 });
 
-stateElements.padConfigForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-
+stateElements.barkDialogDelete.addEventListener("click", async () => {
   try {
-    const state = await window.clockBotApi.savePadConfig({
-      workflowName: stateElements.padWorkflowName.value.trim(),
-      environmentId: stateElements.padEnvironmentId.value.trim()
-    });
-    closePadConfigDialog();
+    const state = await window.clockBotApi.clearBarkSettings();
+    closeBarkDialog();
     render(state);
   } catch (error) {
-    showError(error);
+    setBarkDialogError(error && error.message ? error.message : "Bark settings could not be cleared.");
+  }
+});
+
+stateElements.barkDialogCancel.addEventListener("click", () => {
+  closeBarkDialog();
+});
+
+stateElements.barkDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeBarkDialog();
+});
+
+stateElements.barkDialog.addEventListener("click", (event) => {
+  if (event.target === stateElements.barkDialog) {
+    closeBarkDialog();
+  }
+});
+
+stateElements.barkDeviceKeyInput.addEventListener("input", () => {
+  if (!stateElements.barkDialogError.hidden) {
+    setBarkDialogError("");
+  }
+});
+
+stateElements.barkIconUrlInput.addEventListener("input", () => {
+  if (!stateElements.barkDialogError.hidden) {
+    setBarkDialogError("");
   }
 });
 

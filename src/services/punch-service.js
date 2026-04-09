@@ -1,34 +1,20 @@
-const { performAttendanceAction } = require("./ieyasu-automation");
-const { performPadAttendanceAction } = require("./pad-automation");
-
 class PunchService {
   constructor(log, options = {}) {
     this.log = log;
     this.baseDirectory = options.baseDirectory || process.cwd();
+    this.extensionBridgeService = options.extensionBridgeService || null;
   }
 
   async run(action, credentials, settings, options = {}) {
-    const engine = settings && settings.automationEngine === "pad"
-      ? "pad"
-      : "playwright";
-
-    if (engine === "pad") {
-      return performPadAttendanceAction({
-        action,
-        credentials,
-        attendanceUrl: settings.attendanceUrl,
-        padConfig: settings.padConfig,
-        baseDirectory: this.baseDirectory,
-        log: this.log,
-        onProgress: options.onProgress
-      });
+    if (!this.extensionBridgeService) {
+      throw new Error("Chrome Extension mode is not available right now.");
     }
 
-    return performAttendanceAction({
+    return this.extensionBridgeService.runAction({
       action,
       credentials,
       attendanceUrl: settings.attendanceUrl,
-      log: this.log
+      onProgress: options.onProgress
     });
   }
 }
