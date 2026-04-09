@@ -82,10 +82,18 @@ function formatTimestamp(timestamp) {
   const value = timestamp ? new Date(timestamp) : new Date();
 
   if (Number.isNaN(value.getTime())) {
-    return new Date().toLocaleString("zh-CN", { hour12: false });
+    return new Date().toLocaleTimeString("zh-CN", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit"
+    });
   }
 
-  return value.toLocaleString("zh-CN", { hour12: false });
+  return value.toLocaleTimeString("zh-CN", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit"
+  });
 }
 
 class BarkService {
@@ -144,7 +152,8 @@ class BarkService {
     this.config = this.#sanitize({
       ...this.config,
       enabled: false,
-      deviceKey: ""
+      deviceKey: "",
+      iconUrl: ""
     });
     this.#persist();
     return this.getConfig();
@@ -163,16 +172,9 @@ class BarkService {
       return false;
     }
 
-    const subtitle = `${actionLabel || "Attendance"} | ${status || "Update"}`;
-    const body = [
-      `Time: ${formatTimestamp(timestamp)}`,
-      actionLabel ? `Task: ${actionLabel}` : null,
-      status ? `Result: ${status}` : null,
-      `Trigger: ${normalizeSourceLabel(source)}`,
-      message ? `Details: ${normalizeDetailText(message)}` : null
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const subtitle = `${actionLabel || "Attendance"} | ${status || "Update"} | ${formatTimestamp(timestamp)}`;
+    const detailText = normalizeDetailText(message);
+    const body = detailText || "ClockBot completed the update.";
 
     const requestUrl = new URL(
       `${config.serverOrigin}/${encodeURIComponent(config.deviceKey)}/${encodeURIComponent("ClockBot")}/${encodeURIComponent(subtitle)}/${encodeURIComponent(body)}`

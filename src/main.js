@@ -863,9 +863,13 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle("clockbot:save-settings", (_event, partialSettings) => {
+    const existingSettings = settingsService.getSettings();
     const nextSettings = {
       morningTime: partialSettings.morningTime,
       eveningTime: partialSettings.eveningTime,
+      attendanceUrl: Object.prototype.hasOwnProperty.call(partialSettings, "attendanceUrl")
+        ? partialSettings.attendanceUrl
+        : existingSettings.attendanceUrl,
       browserPreference: "chrome"
     };
 
@@ -962,7 +966,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle("clockbot:clear-bark-settings", () => {
     barkService.clearDeviceKey();
-    logService.info("Cleared the Bark notification device key.");
+    logService.info("Cleared Bark notification settings.");
     broadcastState();
     return buildStateSnapshot();
   });

@@ -11,7 +11,20 @@
       <div class="window-drag">
         <span class="window-title"></span>
       </div>
-      <button id="closeWindowButton" type="button" class="window-close" aria-label="Close window">&times;</button>
+      <div class="window-actions">
+        <button id="openSettingsButton" type="button" class="window-icon-button" aria-label="Open settings" title="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.066 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.066-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.065Z" />
+            <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+          </svg>
+        </button>
+        <button id="closeWindowButton" type="button" class="window-close" aria-label="Close window" title="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 7 17 17" />
+            <path d="M17 7 7 17" />
+          </svg>
+        </button>
+      </div>
     </header>
     <main class="app-shell">
       <section class="hero">
@@ -31,10 +44,6 @@
                 <div class="engine-chip">
                   <span class="section-kicker engine-chip-label">Chrome Extension</span>
                   <span id="extensionConnectionBadge" class="engine-mode-state">Waiting</span>
-                </div>
-                <div class="hero-inline-actions">
-                  <button id="configureBarkButton" type="button" class="secondary panel-action hero-inline-action">Set Bark Push</button>
-                  <button id="openExtensionFolderButton" type="button" class="secondary panel-action hero-inline-action">Open Unpacked Folder</button>
                 </div>
               </div>
               <p id="automationEngineNote" class="hero-meta engine-note"></p>
@@ -150,25 +159,47 @@
       </div>
     </dialog>
 
-    <dialog id="barkDialog" class="confirm-dialog">
-      <div class="confirm-dialog-card dialog-form">
-        <p class="section-kicker">Bark Push</p>
-        <h2>Push Settings</h2>
-        <p class="confirm-dialog-message">Paste your Bark device key and, if you want, a custom icon URL. ClockBot will only send basic task updates to your iPhone.</p>
-        <label>
-          <span>Device Key</span>
-          <input id="barkDeviceKeyInput" type="text" inputmode="text" autocomplete="off" spellcheck="false" />
-        </label>
-        <label>
-          <span>Icon URL</span>
-          <input id="barkIconUrlInput" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://..." />
-        </label>
-        <p class="dialog-help">Bark custom icons must use an image URL your iPhone can reach.</p>
-        <p id="barkDialogError" class="dialog-error" hidden></p>
+    <dialog id="settingsDialog" class="confirm-dialog">
+      <div class="confirm-dialog-card dialog-form settings-dialog-card">
+        <p class="section-kicker">Settings</p>
+        <h2>Automation Settings</h2>
+        <p class="confirm-dialog-message">Manage the IEYASU page, Chrome extension access, and Bark push notifications in one place.</p>
+
+        <section class="dialog-section">
+          <p class="dialog-section-title">IEYASU</p>
+          <label>
+            <span>Attendance URL</span>
+            <input id="settingsAttendanceUrlInput" type="text" inputmode="url" autocomplete="off" spellcheck="false" />
+          </label>
+          <p class="dialog-help">ClockBot opens this IEYASU page before running Clock In or Clock Out.</p>
+        </section>
+
+        <section class="dialog-section">
+          <div class="dialog-section-row">
+            <p class="dialog-section-title">Chrome Extension</p>
+            <button id="settingsOpenExtensionFolderButton" type="button" class="inline-link">Open extension folder</button>
+          </div>
+          <p class="dialog-help">Use this folder when loading the unpacked ClockBot extension in Chrome.</p>
+        </section>
+
+        <section class="dialog-section">
+          <p class="dialog-section-title">Bark Push</p>
+          <label>
+            <span>Device Key</span>
+            <input id="barkDeviceKeyInput" type="text" inputmode="text" autocomplete="off" spellcheck="false" />
+          </label>
+          <label>
+            <span>Icon URL</span>
+            <input id="barkIconUrlInput" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://..." />
+          </label>
+          <p class="dialog-help">ClockBot sends basic task updates to your iPhone. Custom icons must use an image URL your iPhone can reach.</p>
+        </section>
+
+        <p id="settingsDialogError" class="dialog-error" hidden></p>
         <div class="dialog-actions">
-          <button id="barkDialogDelete" type="button" class="secondary">Delete</button>
-          <button id="barkDialogCancel" type="button" class="secondary">Cancel</button>
-          <button id="barkDialogSave" type="button" class="primary">Save</button>
+          <button id="settingsDeleteBarkButton" type="button" class="secondary">Clear All</button>
+          <button id="settingsDialogCancel" type="button" class="secondary">Cancel</button>
+          <button id="settingsDialogSave" type="button" class="primary">Save</button>
         </div>
       </div>
     </dialog>

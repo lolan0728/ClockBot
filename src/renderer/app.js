@@ -5,9 +5,8 @@ const stateElements = {
   eveningTime: document.getElementById("eveningTime"),
   extensionConnectionBadge: document.getElementById("extensionConnectionBadge"),
   automationEngineNote: document.getElementById("automationEngineNote"),
-  configureBarkButton: document.getElementById("configureBarkButton"),
+  openSettingsButton: document.getElementById("openSettingsButton"),
   barkStatusNote: document.getElementById("barkStatusNote"),
-  openExtensionFolderButton: document.getElementById("openExtensionFolderButton"),
   manualActionsHint: document.getElementById("manualActionsHint"),
   clearCredentialsButton: document.getElementById("clearCredentialsButton"),
   resetScheduleButton: document.getElementById("resetScheduleButton"),
@@ -25,13 +24,15 @@ const stateElements = {
   nextRunSummary: document.getElementById("nextRunSummary"),
   toggleLogWindowButton: document.getElementById("toggleLogWindowButton"),
   closeWindowButton: document.getElementById("closeWindowButton"),
-  barkDialog: document.getElementById("barkDialog"),
+  settingsDialog: document.getElementById("settingsDialog"),
+  settingsAttendanceUrlInput: document.getElementById("settingsAttendanceUrlInput"),
+  settingsOpenExtensionFolderButton: document.getElementById("settingsOpenExtensionFolderButton"),
   barkDeviceKeyInput: document.getElementById("barkDeviceKeyInput"),
   barkIconUrlInput: document.getElementById("barkIconUrlInput"),
-  barkDialogError: document.getElementById("barkDialogError"),
-  barkDialogDelete: document.getElementById("barkDialogDelete"),
-  barkDialogCancel: document.getElementById("barkDialogCancel"),
-  barkDialogSave: document.getElementById("barkDialogSave")
+  settingsDialogError: document.getElementById("settingsDialogError"),
+  settingsDeleteBarkButton: document.getElementById("settingsDeleteBarkButton"),
+  settingsDialogCancel: document.getElementById("settingsDialogCancel"),
+  settingsDialogSave: document.getElementById("settingsDialogSave")
 };
 
 const credentialsForm = document.getElementById("credentialsForm");
@@ -153,10 +154,10 @@ function getAutomationEngineNote(state) {
 
   const extensionBridge = getExtensionBridgeState(state);
   if (extensionBridge.connected) {
-    return "Chrome Extension ready. ClockBot will use your regular Chrome session.";
+    return "ClockBot is ready to use your regular Chrome session.";
   }
 
-  return "Chrome Extension mode. Load the unpacked extension and keep Chrome open.";
+  return "ClockBot uses the extension to control actions in Chrome.";
 }
 
 function getManualActionsHint(state) {
@@ -273,30 +274,54 @@ function showConfirmDialog({
   });
 }
 
-function setBarkDialogError(message = "") {
+function setSettingsDialogError(message = "") {
   const nextMessage = String(message || "").trim();
-  stateElements.barkDialogError.textContent = nextMessage;
-  stateElements.barkDialogError.hidden = !nextMessage;
+  stateElements.settingsDialogError.textContent = nextMessage;
+  stateElements.settingsDialogError.hidden = !nextMessage;
 }
 
-function closeBarkDialog() {
-  if (stateElements.barkDialog.open) {
-    stateElements.barkDialog.close();
+function populateSettingsDialog({
+  attendanceUrl = "",
+  deviceKey = "",
+  iconUrl = ""
+} = {}) {
+  stateElements.settingsAttendanceUrlInput.value = attendanceUrl;
+  stateElements.barkDeviceKeyInput.value = deviceKey;
+  stateElements.barkIconUrlInput.value = iconUrl;
+  stateElements.settingsDeleteBarkButton.hidden = !deviceKey && !iconUrl;
+  setSettingsDialogError("");
+}
+
+function closeSettingsDialog() {
+  if (stateElements.settingsDialog.open) {
+    stateElements.settingsDialog.close();
   }
 
-  setBarkDialogError("");
+  setSettingsDialogError("");
 }
 
-async function openBarkDialog() {
+async function openSettingsDialog() {
   const barkSettings = await window.clockBotApi.getBarkSettings();
 
-  stateElements.barkDeviceKeyInput.value = barkSettings.deviceKey || "";
-  stateElements.barkIconUrlInput.value = barkSettings.iconUrl || "";
-  stateElements.barkDialogDelete.hidden = !barkSettings.deviceKey;
-  setBarkDialogError("");
-  stateElements.barkDialog.showModal();
-  stateElements.barkDeviceKeyInput.focus();
-  stateElements.barkDeviceKeyInput.select();
+  populateSettingsDialog({
+    attendanceUrl: currentState && currentState.settings
+      ? currentState.settings.attendanceUrl || ""
+      : "",
+    deviceKey: barkSettings.deviceKey || "",
+    iconUrl: barkSettings.iconUrl || ""
+  });
+  stateElements.settingsDialog.showModal();
+  stateElements.settingsAttendanceUrlInput.focus();
+  stateElements.settingsAttendanceUrlInput.select();
+}
+
+function isValidHttpUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch (error) {
+    return false;
+  }
 }
 
 function normalizeTimeValue(value) {
@@ -546,12 +571,8 @@ function renderResetScheduleAvailability(state) {
 function renderEngineControls(state) {
   const barkState = getBarkState(state);
 
-  stateElements.configureBarkButton.disabled = !state;
-  stateElements.openExtensionFolderButton.disabled = !state;
+  stateElements.openSettingsButton.disabled = !state;
   stateElements.automationEngineNote.textContent = getAutomationEngineNote(state);
-  stateElements.configureBarkButton.textContent = barkState.configured
-    ? "Edit Bark Push"
-    : "Set Bark Push";
   stateElements.barkStatusNote.textContent = barkState.configured
     ? barkState.hasIcon
       ? "Bark push is ready, with a custom icon."
@@ -756,7 +777,7 @@ stateElements.toggleLogWindowButton.addEventListener("click", async () => {
   }
 });
 
-stateElements.openExtensionFolderButton.addEventListener("click", async () => {
+stateElements.settingsOpenExtensionFolderButton.addEventListener("click", async () => {
   try {
     const state = await window.clockBotApi.openExtensionFolder();
     render(state);
@@ -765,9 +786,9 @@ stateElements.openExtensionFolderButton.addEventListener("click", async () => {
   }
 });
 
-stateElements.configureBarkButton.addEventListener("click", async () => {
+stateElements.openSettingsButton.addEventListener("click", async () => {
   try {
-    await openBarkDialog();
+    await openSettingsDialog();
   } catch (error) {
     showError(error);
   }
@@ -898,62 +919,122 @@ stateElements.confirmDialog.addEventListener("click", (event) => {
   }
 });
 
-stateElements.barkDialogSave.addEventListener("click", async () => {
+stateElements.settingsDialogSave.addEventListener("click", async () => {
+  const attendanceUrl = stateElements.settingsAttendanceUrlInput.value.trim();
   const deviceKey = stateElements.barkDeviceKeyInput.value.trim();
   const iconUrl = stateElements.barkIconUrlInput.value.trim();
 
-  if (!deviceKey) {
-    setBarkDialogError("Device key is required.");
+  if (!attendanceUrl || !isValidHttpUrl(attendanceUrl)) {
+    setSettingsDialogError("IEYASU URL must be a valid http or https address.");
+    stateElements.settingsAttendanceUrlInput.focus();
+    return;
+  }
+
+  if (!deviceKey && iconUrl) {
+    setSettingsDialogError("Add a Bark device key before saving an icon URL.");
+    stateElements.barkDeviceKeyInput.focus();
+    return;
+  }
+
+  if (!deviceKey && currentState && getBarkState(currentState).configured) {
+    setSettingsDialogError("Use Delete Bark Key if you want to remove the current Bark setup.");
     stateElements.barkDeviceKeyInput.focus();
     return;
   }
 
   try {
-    const state = await window.clockBotApi.saveBarkSettings({
-      deviceKey,
-      iconUrl
+    const settingsState = await flushPendingSettingsSave();
+    const effectiveState = settingsState || currentState;
+    let nextState = await window.clockBotApi.saveSettings({
+      morningTime: effectiveState.settings.morningTime,
+      eveningTime: effectiveState.settings.eveningTime,
+      attendanceUrl,
+      browserPreference: getSelectedBrowserPreferenceFromForm()
     });
-    closeBarkDialog();
-    render(state);
+
+    if (deviceKey) {
+      nextState = await window.clockBotApi.saveBarkSettings({
+        deviceKey,
+        iconUrl
+      });
+    }
+
+    closeSettingsDialog();
+    render(nextState);
   } catch (error) {
-    setBarkDialogError(error && error.message ? error.message : "Bark settings could not be saved.");
+    setSettingsDialogError(error && error.message ? error.message : "Settings could not be saved.");
   }
 });
 
-stateElements.barkDialogDelete.addEventListener("click", async () => {
+stateElements.settingsDeleteBarkButton.addEventListener("click", async () => {
+  const draft = {
+    attendanceUrl: stateElements.settingsAttendanceUrlInput.value.trim(),
+    deviceKey: stateElements.barkDeviceKeyInput.value.trim(),
+    iconUrl: stateElements.barkIconUrlInput.value.trim()
+  };
+
+  closeSettingsDialog();
+
+  const confirmed = await showConfirmDialog({
+    title: "Clear all Bark settings?",
+    message: "ClockBot will remove the saved Bark device key and icon URL. Your IEYASU URL will stay unchanged.",
+    confirmLabel: "Clear All",
+    confirmTone: "danger"
+  });
+
+  if (!confirmed) {
+    populateSettingsDialog(draft);
+    stateElements.settingsDialog.showModal();
+    return;
+  }
+
   try {
     const state = await window.clockBotApi.clearBarkSettings();
-    closeBarkDialog();
     render(state);
+    populateSettingsDialog({
+      attendanceUrl: draft.attendanceUrl,
+      deviceKey: "",
+      iconUrl: ""
+    });
+    stateElements.settingsDialog.showModal();
   } catch (error) {
-    setBarkDialogError(error && error.message ? error.message : "Bark settings could not be cleared.");
+    render(currentState);
+    populateSettingsDialog(draft);
+    stateElements.settingsDialog.showModal();
+    setSettingsDialogError(error && error.message ? error.message : "Bark settings could not be cleared.");
   }
 });
 
-stateElements.barkDialogCancel.addEventListener("click", () => {
-  closeBarkDialog();
+stateElements.settingsDialogCancel.addEventListener("click", () => {
+  closeSettingsDialog();
 });
 
-stateElements.barkDialog.addEventListener("cancel", (event) => {
+stateElements.settingsDialog.addEventListener("cancel", (event) => {
   event.preventDefault();
-  closeBarkDialog();
+  closeSettingsDialog();
 });
 
-stateElements.barkDialog.addEventListener("click", (event) => {
-  if (event.target === stateElements.barkDialog) {
-    closeBarkDialog();
+stateElements.settingsDialog.addEventListener("click", (event) => {
+  if (event.target === stateElements.settingsDialog) {
+    closeSettingsDialog();
+  }
+});
+
+stateElements.settingsAttendanceUrlInput.addEventListener("input", () => {
+  if (!stateElements.settingsDialogError.hidden) {
+    setSettingsDialogError("");
   }
 });
 
 stateElements.barkDeviceKeyInput.addEventListener("input", () => {
-  if (!stateElements.barkDialogError.hidden) {
-    setBarkDialogError("");
+  if (!stateElements.settingsDialogError.hidden) {
+    setSettingsDialogError("");
   }
 });
 
 stateElements.barkIconUrlInput.addEventListener("input", () => {
-  if (!stateElements.barkDialogError.hidden) {
-    setBarkDialogError("");
+  if (!stateElements.settingsDialogError.hidden) {
+    setSettingsDialogError("");
   }
 });
 

@@ -11,7 +11,14 @@
       <div class="window-drag">
         <span class="window-title"></span>
       </div>
-      <button id="closeWindowButton" type="button" class="window-close" aria-label="Close window">&times;</button>
+      <div class="window-actions">
+        <button id="closeWindowButton" type="button" class="window-close" aria-label="Close window" title="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 7 17 17" />
+            <path d="M17 7 7 17" />
+          </svg>
+        </button>
+      </div>
     </header>
     <main class="log-window-shell">
       <header class="log-window-header">

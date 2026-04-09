@@ -20,7 +20,7 @@
   --shadow: 0 22px 56px rgba(39, 58, 47, 0.12);
   --shadow-soft: inset 0 1px 0 rgba(255, 255, 255, 0.82);
   --compact-column-width: 286px;
-  --status-panel-height: 178px;
+  --status-panel-min-height: 198px;
   font-family: "Aptos", "Segoe UI Variable Text", "Segoe UI", sans-serif;
 }
 
@@ -65,7 +65,7 @@ body::before {
 }
 
 .main-window-body .window-bar {
-  height: 24px;
+  height: 30px;
   padding: 0 0 0 8px;
 }
 
@@ -73,27 +73,27 @@ body::before {
   display: none;
 }
 
+.main-window-body .window-icon-button,
 .main-window-body .window-close {
-  width: 26px;
-  min-width: 26px;
-  height: 24px;
-  min-height: 24px;
-  border-radius: 8px;
-  font-size: 17px;
+  width: 38px;
+  min-width: 38px;
+  height: 30px;
+  min-height: 30px;
+  font-size: 20px;
 }
 
 .log-window-body .window-bar {
-  height: 24px;
+  height: 30px;
   padding: 0 0 0 8px;
 }
 
+.log-window-body .window-icon-button,
 .log-window-body .window-close {
-  width: 26px;
-  min-width: 26px;
-  height: 24px;
-  min-height: 24px;
-  border-radius: 8px;
-  font-size: 17px;
+  width: 38px;
+  min-width: 38px;
+  height: 30px;
+  min-height: 30px;
+  font-size: 20px;
 }
 
 .window-bar {
@@ -110,6 +110,13 @@ body::before {
   min-width: 0;
 }
 
+.window-actions {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
 .window-title {
   color: rgba(25, 36, 29, 0.78);
   font-size: 12px;
@@ -117,17 +124,17 @@ body::before {
   letter-spacing: 0.02em;
 }
 
+.window-icon-button,
 .window-close {
-  -webkit-app-region: no-drag;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  min-width: 32px;
+  width: 34px;
+  min-width: 34px;
   height: 28px;
   min-height: 28px;
   padding: 0;
-  border-radius: 10px;
+  border-radius: 0;
   background: transparent;
   color: rgba(25, 36, 29, 0.78);
   box-shadow: none;
@@ -135,16 +142,41 @@ body::before {
   line-height: 1;
 }
 
+.window-icon-button {
+  background: transparent;
+  color: rgba(25, 36, 29, 0.78);
+}
+
+.window-icon-button svg,
+.window-close svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: block;
+}
+
+.window-icon-button:hover {
+  background: rgba(25, 36, 29, 0.09);
+  color: rgba(25, 36, 29, 0.94);
+}
+
+.window-icon-button:active {
+  background: rgba(25, 36, 29, 0.14);
+  color: rgba(25, 36, 29, 0.98);
+}
+
 .window-close:hover {
   background: #e81123;
   color: #fff;
-  border-radius: 0 8px 0 0;
 }
 
 .window-close:active {
   background: #c50f1f;
   color: #fff;
-  border-radius: 0 8px 0 0;
 }
 
 button,
@@ -364,14 +396,6 @@ h3 {
 
 .hero-inline-action.secondary:hover {
   background: rgba(255, 255, 255, 0.88);
-}
-
-.hero-inline-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 
 .bark-note {
@@ -714,8 +738,7 @@ button:disabled {
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   align-content: start;
   padding: 14px;
-  height: var(--status-panel-height);
-  min-height: var(--status-panel-height);
+  min-height: var(--status-panel-min-height);
   border-radius: 0 0 20px 20px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(242, 247, 240, 0.96));
@@ -759,6 +782,7 @@ button:disabled {
 
 .status-message {
   line-height: 1.35;
+  min-height: calc(1.35em * 3);
   overflow: hidden;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -881,6 +905,10 @@ button:disabled {
   color: var(--text);
 }
 
+#settingsDialog {
+  width: min(520px, calc(100vw - 36px));
+}
+
 .confirm-dialog::backdrop {
   background: rgba(21, 31, 25, 0.28);
   backdrop-filter: blur(4px);
@@ -915,6 +943,33 @@ button:disabled {
   width: 100%;
 }
 
+.settings-dialog-card {
+  gap: 14px;
+}
+
+.dialog-section {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 246, 241, 0.94));
+  border: 1px solid rgba(35, 58, 41, 0.08);
+}
+
+.dialog-section-title {
+  color: var(--primary-strong);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.dialog-section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .dialog-error {
   min-height: 18px;
   margin-top: -2px;
@@ -938,7 +993,7 @@ button:disabled {
   margin-top: 4px;
 }
 
-#barkDialogDelete {
+#settingsDeleteBarkButton {
   margin-right: auto;
 }
 
