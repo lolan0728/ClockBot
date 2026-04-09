@@ -12,6 +12,9 @@ const DEFAULT_SETTINGS = Object.freeze({
   morningTime: "09:00",
   eveningTime: "18:00",
   attendanceUrl: DEFAULT_ATTENDANCE_URL,
+  scheduledRetryCount: 0,
+  fuzzyTimeEnabled: false,
+  fuzzyMinutes: 5,
   automationEngine: DEFAULT_AUTOMATION_ENGINE,
   browserPreference: DEFAULT_BROWSER_PREFERENCE,
   minimizeToTray: true
@@ -39,6 +42,22 @@ function sanitizeAttendanceUrl(candidate) {
 
 function sanitizeAutomationEngine(candidate) {
   return DEFAULT_AUTOMATION_ENGINE;
+}
+
+function sanitizeNonNegativeInteger(candidate, fallback) {
+  if (typeof candidate === "number" && Number.isFinite(candidate)) {
+    return Math.max(0, Math.floor(candidate));
+  }
+
+  if (typeof candidate === "string" && candidate.trim()) {
+    const parsed = Number.parseInt(candidate.trim(), 10);
+
+    if (!Number.isNaN(parsed)) {
+      return Math.max(0, parsed);
+    }
+  }
+
+  return fallback;
 }
 
 class SettingsService {
@@ -97,6 +116,19 @@ class SettingsService {
       }
 
       next.attendanceUrl = sanitizeAttendanceUrl(candidate.attendanceUrl);
+      next.scheduledRetryCount = sanitizeNonNegativeInteger(
+        candidate.scheduledRetryCount,
+        DEFAULT_SETTINGS.scheduledRetryCount
+      );
+
+      if (typeof candidate.fuzzyTimeEnabled === "boolean") {
+        next.fuzzyTimeEnabled = candidate.fuzzyTimeEnabled;
+      }
+
+      next.fuzzyMinutes = sanitizeNonNegativeInteger(
+        candidate.fuzzyMinutes,
+        DEFAULT_SETTINGS.fuzzyMinutes
+      );
       next.automationEngine = sanitizeAutomationEngine(candidate.automationEngine);
       next.browserPreference = sanitizeBrowserPreference(candidate.browserPreference);
 

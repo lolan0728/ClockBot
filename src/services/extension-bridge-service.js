@@ -13,6 +13,7 @@ const CLIENT_STALE_TIMEOUT_MS = 4500;
 const CONNECTION_MONITOR_INTERVAL_MS = 1000;
 const COMMAND_DISCONNECT_GRACE_MS = CLIENT_STALE_TIMEOUT_MS + 1200;
 const COMMAND_PICKUP_GRACE_MS = 1800;
+const COMMAND_RELAUNCH_COOLDOWN_MS = 6500;
 const CLIENT_CONNECT_TIMEOUT_MS = 20000;
 const COMMAND_TIMEOUT_MS = 180000;
 const COMMAND_POLL_INTERVAL_MS = 1500;
@@ -213,7 +214,8 @@ class ExtensionBridgeService extends EventEmitter {
         reject,
         timeoutHandle: null,
         lastProgressKey: "",
-        launchAttempts: 0
+        launchAttempts: 0,
+        lastLaunchAt: 0
       };
 
       this.pendingCommand = command;
@@ -259,6 +261,7 @@ class ExtensionBridgeService extends EventEmitter {
   }
 
   #launchChromeForCommand(command, browserState, progress) {
+    command.lastLaunchAt = Date.now();
     this.#launchChrome(browserState);
     command.launchAttempts += 1;
 
@@ -294,7 +297,6 @@ class ExtensionBridgeService extends EventEmitter {
 
   async #waitForCommandPickup(command, browserState, timeoutMs) {
     const startedAt = Date.now();
-    let pickupRecoveryLaunchTriggered = false;
 
     while (Date.now() - startedAt < timeoutMs) {
       if (!this.pendingCommand || this.pendingCommand.id !== command.id) {
@@ -306,20 +308,18 @@ class ExtensionBridgeService extends EventEmitter {
       }
 
       const elapsedMs = Date.now() - startedAt;
-      const shouldAttemptRecoveryLaunch = !pickupRecoveryLaunchTriggered &&
-        command.launchAttempts < 2 &&
-        elapsedMs >= COMMAND_PICKUP_GRACE_MS;
-      const shouldLaunchBecauseClientDropped = !pickupRecoveryLaunchTriggered &&
-        command.launchAttempts < 2 &&
-        !this.#isClientConnected();
+      const timeSinceLastLaunchMs = command.lastLaunchAt > 0
+        ? Date.now() - command.lastLaunchAt
+        : Number.POSITIVE_INFINITY;
+      const shouldAttemptRecoveryLaunch = command.launchAttempts < 2 &&
+        elapsedMs >= COMMAND_PICKUP_GRACE_MS &&
+        !this.#isClientConnected() &&
+        timeSinceLastLaunchMs >= COMMAND_RELAUNCH_COOLDOWN_MS;
 
-      if (shouldAttemptRecoveryLaunch || shouldLaunchBecauseClientDropped) {
-        pickupRecoveryLaunchTriggered = true;
+      if (shouldAttemptRecoveryLaunch) {
         this.#launchChromeForCommand(command, browserState, {
-          stage: command.launchAttempts > 0 ? "launching_browser_retry" : "launching_browser",
-          message: command.launchAttempts > 0
-            ? "Chrome still has not picked up the task, so ClockBot is reopening it with your everyday profile."
-            : "Chrome did not pick up the task yet, so ClockBot is opening it with your everyday profile."
+          stage: "launching_browser_retry",
+          message: "Chrome is still offline, so ClockBot is reopening it with your everyday profile."
         });
       }
 

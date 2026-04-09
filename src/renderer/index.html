@@ -60,7 +60,7 @@
               <p class="section-kicker">Session</p>
               <div class="panel-heading-row">
                 <h2>Credentials</h2>
-                <button id="clearCredentialsButton" type="button" class="secondary panel-action">Clear Saved Info</button>
+                <button id="clearCredentialsButton" type="button" class="secondary panel-action">Clear Login Info</button>
               </div>
             </div>
             <form id="credentialsForm" class="stack compact-form" novalidate>
@@ -163,7 +163,22 @@
       <div class="confirm-dialog-card dialog-form settings-dialog-card">
         <p class="section-kicker">Settings</p>
         <h2>Automation Settings</h2>
-        <p class="confirm-dialog-message">Manage the IEYASU page, Chrome extension access, and Bark push notifications in one place.</p>
+        <p class="confirm-dialog-message">Manage automation timing, the IEYASU page, Chrome extension access, and Bark push notifications in one place.</p>
+
+        <section class="dialog-section">
+          <p class="dialog-section-title">Automation</p>
+          <div class="dialog-inline-fields">
+            <label class="dialog-compact-field">
+              <span>Extra Retries</span>
+              <input id="settingsScheduledRetryCountInput" type="number" inputmode="numeric" min="0" step="1" />
+            </label>
+            <label class="dialog-compact-field">
+              <span>Fuzzy Time (Minutes)</span>
+              <input id="settingsFuzzyMinutesInput" type="number" inputmode="numeric" min="0" step="1" />
+            </label>
+          </div>
+          <p class="dialog-help">Extra retries apply only to scheduled runs. Fuzzy time of 0 turns it off. Clock In becomes slightly earlier, and Clock Out becomes slightly later.</p>
+        </section>
 
         <section class="dialog-section">
           <p class="dialog-section-title">IEYASU</p>
@@ -197,7 +212,7 @@
 
         <p id="settingsDialogError" class="dialog-error" hidden></p>
         <div class="dialog-actions">
-          <button id="settingsDeleteBarkButton" type="button" class="secondary">Clear All</button>
+          <button id="settingsDeleteBarkButton" type="button" class="danger">Clear All</button>
           <button id="settingsDialogCancel" type="button" class="secondary">Cancel</button>
           <button id="settingsDialogSave" type="button" class="primary">Save</button>
         </div>

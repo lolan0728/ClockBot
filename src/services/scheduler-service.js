@@ -1,4 +1,6 @@
 const MAX_ALLOWED_DELAY_MS = 30 * 60 * 1000;
+const RETRY_DELAY_MIN_MS = 25 * 1000;
+const RETRY_DELAY_MAX_MS = 35 * 1000;
 
 function toDateKey(date) {
   const year = date.getFullYear();
@@ -14,15 +16,63 @@ function buildDateFromTime(date, timeText) {
   return target;
 }
 
+function randomIntegerInclusive(min, max) {
+  const lower = Math.ceil(min);
+  const upper = Math.floor(max);
+  return Math.floor(Math.random() * (upper - lower + 1)) + lower;
+}
+
+function clampToDay(date, referenceDate) {
+  const start = new Date(referenceDate);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(referenceDate);
+  end.setHours(23, 59, 0, 0);
+
+  if (date.getTime() < start.getTime()) {
+    return start;
+  }
+
+  if (date.getTime() > end.getTime()) {
+    return end;
+  }
+
+  return date;
+}
+
+function buildScheduledTarget(date, timeText, settings, action) {
+  const baseTarget = buildDateFromTime(date, timeText);
+
+  if (!settings.fuzzyTimeEnabled || settings.fuzzyMinutes <= 0) {
+    return baseTarget;
+  }
+
+  const offsetMinutes = randomIntegerInclusive(0, settings.fuzzyMinutes);
+  const target = new Date(baseTarget);
+
+  if (action === "clockIn") {
+    target.setMinutes(target.getMinutes() - offsetMinutes);
+  } else {
+    target.setMinutes(target.getMinutes() + offsetMinutes);
+  }
+
+  return clampToDay(target, date);
+}
+
 class SchedulerService {
-  constructor({ getSettings, onTrigger, onMissed, onDayChanged, log }) {
+  constructor({ getSettings, onTrigger, onMissed, onDayChanged, onScheduleChanged, log }) {
     this.getSettings = getSettings;
     this.onTrigger = onTrigger;
     this.onMissed = onMissed;
     this.onDayChanged = onDayChanged;
+    this.onScheduleChanged = onScheduleChanged;
     this.log = log;
     this.currentDateKey = toDateKey(new Date());
     this.timers = {
+      clockIn: null,
+      clockOut: null
+    };
+    this.plans = {
       clockIn: null,
       clockOut: null
     };
@@ -40,7 +90,7 @@ class SchedulerService {
 
   stop() {
     this.active = false;
-    this.#clearTimers();
+    this.#clearTimersAndPlans();
 
     if (this.dayWatcher) {
       clearInterval(this.dayWatcher);
@@ -53,20 +103,23 @@ class SchedulerService {
       return;
     }
 
-    this.#clearTimers();
+    this.#clearTimersAndPlans();
     this.#scheduleAll();
   }
 
   getSchedulePreview() {
-    const settings = this.getSettings();
-    const now = new Date();
-    const morning = buildDateFromTime(now, settings.morningTime);
-    const evening = buildDateFromTime(now, settings.eveningTime);
-
     return {
-      clockIn: morning.getTime() > now.getTime() ? morning.toISOString() : null,
-      clockOut: evening.getTime() > now.getTime() ? evening.toISOString() : null
+      clockIn: this.plans.clockIn ? this.plans.clockIn.scheduledFor : null,
+      clockOut: this.plans.clockOut ? this.plans.clockOut.scheduledFor : null
     };
+  }
+
+  getActionPlan(action) {
+    const plan = this.plans[action];
+
+    return plan
+      ? { ...plan }
+      : null;
   }
 
   #handleDayBoundary() {
@@ -77,68 +130,149 @@ class SchedulerService {
     }
 
     this.currentDateKey = nextDateKey;
-    this.#clearTimers();
+    this.#clearTimersAndPlans();
     this.onDayChanged();
     this.#scheduleAll();
   }
 
   #scheduleAll() {
     const settings = this.getSettings();
-    this.#scheduleAction("clockIn", settings.morningTime);
-    this.#scheduleAction("clockOut", settings.eveningTime);
+    this.#scheduleInitialAction("clockIn", settings.morningTime, settings);
+    this.#scheduleInitialAction("clockOut", settings.eveningTime, settings);
+    this.#emitScheduleChanged();
   }
 
-  #scheduleAction(action, timeText) {
+  #scheduleInitialAction(action, timeText, settings) {
     const now = new Date();
-    const target = buildDateFromTime(now, timeText);
+    const target = buildScheduledTarget(now, timeText, settings, action);
     const delayMs = target.getTime() - now.getTime();
 
     if (delayMs <= 0) {
       this.log.info(`Skipped scheduling ${action} for today because ${timeText} has already passed.`);
+      this.plans[action] = null;
       return;
     }
 
-    this.log.info(`Scheduled ${action} for ${target.toLocaleString()}.`);
-    this.timers[action] = setTimeout(() => {
-      void this.#runAction(action, target);
-    }, delayMs);
+    this.#scheduleAction(action, {
+      scheduledFor: target.toISOString(),
+      attemptIndex: 1,
+      maxAttempts: 1 + Math.max(0, settings.scheduledRetryCount || 0),
+      isRetry: false
+    });
   }
 
-  async #runAction(action, scheduledFor) {
+  #scheduleRetry(action, previousPlan) {
+    const retryDelayMs = randomIntegerInclusive(RETRY_DELAY_MIN_MS, RETRY_DELAY_MAX_MS);
+    const scheduledFor = new Date(Date.now() + retryDelayMs);
+    const retryPlan = {
+      scheduledFor: scheduledFor.toISOString(),
+      attemptIndex: previousPlan.attemptIndex + 1,
+      maxAttempts: previousPlan.maxAttempts,
+      isRetry: true
+    };
+
+    this.log.info(`Queued retry ${retryPlan.attemptIndex} of ${retryPlan.maxAttempts} for ${action} at ${scheduledFor.toLocaleString()}.`, {
+      retryDelayMs
+    });
+    this.#scheduleAction(action, retryPlan);
+  }
+
+  #scheduleAction(action, plan) {
+    const scheduledForDate = new Date(plan.scheduledFor);
+    const delayMs = scheduledForDate.getTime() - Date.now();
+
+    if (delayMs <= 0) {
+      return;
+    }
+
+    this.plans[action] = {
+      ...plan,
+      scheduledFor: scheduledForDate.toISOString()
+    };
+    this.timers[action] = setTimeout(() => {
+      void this.#runAction(action, this.plans[action]);
+    }, delayMs);
+
+    if (!plan.isRetry) {
+      this.log.info(`Scheduled ${action} for ${scheduledForDate.toLocaleString()}.`);
+    }
+
+    this.#emitScheduleChanged();
+  }
+
+  async #runAction(action, plan) {
     if (!this.active) {
       return;
     }
 
+    if (!plan || !this.plans[action] || this.plans[action].scheduledFor !== plan.scheduledFor) {
+      return;
+    }
+
+    this.timers[action] = null;
+    this.plans[action] = null;
+    this.#emitScheduleChanged();
+
+    const scheduledFor = new Date(plan.scheduledFor);
     const now = Date.now();
     const delayMs = now - scheduledFor.getTime();
 
     if (delayMs > MAX_ALLOWED_DELAY_MS) {
       await this.onMissed(action, {
         scheduledFor: scheduledFor.toISOString(),
-        delayMs
+        delayMs,
+        attemptIndex: plan.attemptIndex,
+        maxAttempts: plan.maxAttempts,
+        isRetry: plan.isRetry
       });
       return;
     }
 
-    await this.onTrigger(action, {
+    const result = await this.onTrigger(action, {
       source: "scheduled",
-      scheduledFor: scheduledFor.toISOString()
+      scheduledFor: scheduledFor.toISOString(),
+      attemptIndex: plan.attemptIndex,
+      maxAttempts: plan.maxAttempts,
+      isRetry: plan.isRetry
     });
+
+    if (!this.active || !result || result.status !== "Failed") {
+      return;
+    }
+
+    if (plan.attemptIndex >= plan.maxAttempts) {
+      return;
+    }
+
+    this.#scheduleRetry(action, plan);
   }
 
-  #clearTimers() {
+  #clearTimersAndPlans() {
     Object.keys(this.timers).forEach((key) => {
       if (this.timers[key]) {
         clearTimeout(this.timers[key]);
         this.timers[key] = null;
       }
+
+      this.plans[key] = null;
     });
+
+    this.#emitScheduleChanged();
+  }
+
+  #emitScheduleChanged() {
+    if (typeof this.onScheduleChanged === "function") {
+      this.onScheduleChanged(this.getSchedulePreview());
+    }
   }
 }
 
 module.exports = {
   MAX_ALLOWED_DELAY_MS,
+  RETRY_DELAY_MAX_MS,
+  RETRY_DELAY_MIN_MS,
   SchedulerService,
   buildDateFromTime,
+  buildScheduledTarget,
   toDateKey
 };

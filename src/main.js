@@ -210,6 +210,91 @@ function isAutomationEngineReady(settings) {
   return !getAutomationEngineBlockingReason(settings);
 }
 
+function formatScheduleTimeForMessage(timestamp, includeSeconds = false) {
+  if (!timestamp) {
+    return "later today";
+  }
+
+  const value = new Date(timestamp);
+
+  if (Number.isNaN(value.getTime())) {
+    return "later today";
+  }
+
+  return value.toLocaleTimeString("en-GB", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: includeSeconds ? "2-digit" : undefined
+  });
+}
+
+function formatAttemptCounter(metadata = {}) {
+  if (!metadata || !metadata.attemptIndex || !metadata.maxAttempts || metadata.maxAttempts <= 1) {
+    return "";
+  }
+
+  return `${metadata.attemptIndex} of ${metadata.maxAttempts}`;
+}
+
+function buildScheduledStartMessage(action, metadata = {}) {
+  const actionLabel = ACTION_LABELS[action] || action;
+  const attemptCounter = formatAttemptCounter(metadata);
+
+  if (metadata.source !== "scheduled") {
+    return `${actionLabel} is starting...`;
+  }
+
+  if (metadata.isRetry) {
+    return attemptCounter
+      ? `${actionLabel} retry ${attemptCounter} is starting...`
+      : `${actionLabel} retry is starting...`;
+  }
+
+  return attemptCounter
+    ? `Scheduled ${actionLabel} attempt ${attemptCounter} is starting...`
+    : `Scheduled ${actionLabel} is starting...`;
+}
+
+function buildMonitoringStartedMessage() {
+  const preview = schedulerService ? schedulerService.getSchedulePreview() : null;
+  const nextRuns = [];
+
+  if (preview && preview.clockIn) {
+    nextRuns.push(`Clock In at ${formatScheduleTimeForMessage(preview.clockIn)}`);
+  }
+
+  if (preview && preview.clockOut) {
+    nextRuns.push(`Clock Out at ${formatScheduleTimeForMessage(preview.clockOut)}`);
+  }
+
+  return nextRuns.length
+    ? `Monitoring started. Next runs: ${nextRuns.join(" | ")}.`
+    : "Monitoring started. No future runs are scheduled for today.";
+}
+
+function getActionPendingMessage(action) {
+  const settings = settingsService ? settingsService.getSettings() : null;
+  const plan = schedulerService ? schedulerService.getActionPlan(action) : null;
+
+  if (!settings || !monitoringEnabled || !runtimeCredentials) {
+    return "Monitoring is stopped. Click Start Monitoring to arm this action.";
+  }
+
+  if (plan && plan.isRetry) {
+    const attemptCounter = formatAttemptCounter(plan);
+    return attemptCounter
+      ? `${ACTION_LABELS[action]} retry ${attemptCounter} is queued for ${formatScheduleTimeForMessage(plan.scheduledFor, true)}.`
+      : `${ACTION_LABELS[action]} retry is queued for ${formatScheduleTimeForMessage(plan.scheduledFor, true)}.`;
+  }
+
+  if (plan) {
+    return `Monitoring is active. Waiting for ${formatScheduleTimeForMessage(plan.scheduledFor)}.`;
+  }
+
+  return `No future ${ACTION_LABELS[action]} run is scheduled for today.`;
+}
+
 function buildStateSnapshot() {
   ensureCurrentDayState();
   const browserAvailability = getBrowserAvailabilitySnapshot();
@@ -231,7 +316,9 @@ function buildStateSnapshot() {
     latestRun,
     latestActionProgress,
     logs: logService.getEntries(),
-    schedulePreview: schedulerService.getSchedulePreview(),
+    schedulePreview: schedulerService
+      ? schedulerService.getSchedulePreview()
+      : { clockIn: null, clockOut: null },
     extensionBridge: extensionBridgeService ? extensionBridgeService.getPublicState() : null,
     bark: barkService ? barkService.getPublicState() : null,
     capabilities: {
@@ -314,8 +401,13 @@ function showNotification(title, body) {
   notification.show();
 }
 
+function shouldSendBarkResult(status, metadata = {}) {
+  const source = metadata.source || (metadata.scheduledFor ? "scheduled" : "manual");
+  return source === "scheduled" && status === "Failed";
+}
+
 function notifyBarkResult(action, status, message, metadata = {}) {
-  if (!barkService) {
+  if (!barkService || !shouldSendBarkResult(status, metadata)) {
     return;
   }
 
@@ -382,20 +474,35 @@ function updateActionProgress(action, progress) {
   };
 }
 
+function buildAutomationOutcome(action, status, message, metadata = {}) {
+  return {
+    action,
+    actionLabel: ACTION_LABELS[action] || action,
+    status,
+    message,
+    timestamp: new Date().toISOString(),
+    source: metadata.source || "manual",
+    scheduledFor: metadata.scheduledFor || null,
+    attemptIndex: metadata.attemptIndex || 1,
+    maxAttempts: metadata.maxAttempts || 1,
+    isRetry: Boolean(metadata.isRetry)
+  };
+}
+
 function refreshPendingMessages() {
-  const settings = settingsService ? settingsService.getSettings() : null;
+  ["clockIn", "clockOut"].forEach((action) => {
+    const plan = schedulerService ? schedulerService.getActionPlan(action) : null;
 
-  if (dailyState.clockIn.status === "Pending") {
-    dailyState.clockIn.message = settings && monitoringEnabled && runtimeCredentials
-      ? `Monitoring is active. Waiting for ${settings.morningTime}.`
-      : "Monitoring is stopped. Click Start Monitoring to arm this action.";
-  }
+    if (plan && plan.isRetry && dailyState[action].status !== "Running") {
+      dailyState[action].status = "Pending";
+      dailyState[action].message = getActionPendingMessage(action);
+      return;
+    }
 
-  if (dailyState.clockOut.status === "Pending") {
-    dailyState.clockOut.message = settings && monitoringEnabled && runtimeCredentials
-      ? `Monitoring is active. Waiting for ${settings.eveningTime}.`
-      : "Monitoring is stopped. Click Start Monitoring to arm this action.";
-  }
+    if (dailyState[action].status === "Pending") {
+      dailyState[action].message = getActionPendingMessage(action);
+    }
+  });
 }
 
 function focusMainWindow() {
@@ -448,7 +555,7 @@ function startMonitoringSession(inputCredentials = {}, options = {}) {
     action: "monitoring",
     actionLabel: "Monitoring",
     status: "Ready",
-    message: `Monitoring started. Today's schedule is ${settingsService.getSettings().morningTime} and ${settingsService.getSettings().eveningTime}.`,
+    message: buildMonitoringStartedMessage(),
     timestamp: monitoringStartedAt
   };
   latestActionProgress = null;
@@ -566,11 +673,20 @@ function resolveCredentials(inputCredentials) {
     : null;
 }
 
-async function runAttendanceAction(action, metadata = { source: "manual" }) {
+async function executeAttendanceAction(action, metadata = { source: "manual" }) {
   if (isRunning) {
     const message = "Another automation run is already in progress.";
     logService.warn(message, metadata);
-    return buildStateSnapshot();
+
+    if (metadata.source === "scheduled") {
+      updateActionState(action, "Failed", message);
+      showNotification("ClockBot", `${ACTION_LABELS[action]} failed: ${message}`);
+      notifyBarkResult(action, "Failed", message, metadata);
+      broadcastState();
+      return buildAutomationOutcome(action, "Failed", message, metadata);
+    }
+
+    return buildAutomationOutcome(action, "Skipped", message, metadata);
   }
 
   const actionSettings = getRuntimeSettings();
@@ -585,7 +701,7 @@ async function runAttendanceAction(action, metadata = { source: "manual" }) {
     showNotification("ClockBot", automationError);
     notifyBarkResult(action, "Failed", automationError, metadata);
     broadcastState();
-    return buildStateSnapshot();
+    return buildAutomationOutcome(action, "Failed", automationError, metadata);
   }
 
   const actionCredentials = monitoringEnabled && runtimeCredentials
@@ -599,12 +715,12 @@ async function runAttendanceAction(action, metadata = { source: "manual" }) {
     showNotification("ClockBot", message);
     notifyBarkResult(action, "Failed", message, metadata);
     broadcastState();
-    return buildStateSnapshot();
+    return buildAutomationOutcome(action, "Failed", message, metadata);
   }
 
   isRunning = true;
   latestActionProgress = null;
-  updateActionState(action, "Running", `${ACTION_LABELS[action]} is starting...`);
+  updateActionState(action, "Running", buildScheduledStartMessage(action, metadata));
   logService.info(`Starting ${action}.`, metadata);
   broadcastState();
 
@@ -617,6 +733,7 @@ async function runAttendanceAction(action, metadata = { source: "manual" }) {
     });
     updateActionState(action, result.status, result.message);
     latestActionProgress = null;
+    const outcome = buildAutomationOutcome(action, result.status, result.message, metadata);
     logService.info(`${ACTION_LABELS[action]} finished with status ${result.status}.`, {
       ...metadata,
       message: result.message
@@ -628,22 +745,28 @@ async function runAttendanceAction(action, metadata = { source: "manual" }) {
       showNotification("ClockBot", `${ACTION_LABELS[action]}: ${result.message}`);
     }
 
-    notifyBarkResult(action, result.status, result.message, metadata);
+    notifyBarkResult(action, result.status, result.message, outcome);
+    return outcome;
   } catch (error) {
     const message = error && error.message ? error.message : "Unknown automation error.";
     updateActionState(action, "Failed", message);
     latestActionProgress = null;
+    const outcome = buildAutomationOutcome(action, "Failed", message, metadata);
     logService.error(`${ACTION_LABELS[action]} failed.`, {
       ...metadata,
       message
     });
     showNotification("ClockBot", `${ACTION_LABELS[action]} failed: ${message}`);
-    notifyBarkResult(action, "Failed", message, metadata);
+    notifyBarkResult(action, "Failed", message, outcome);
+    return outcome;
   } finally {
     isRunning = false;
     broadcastState();
   }
+}
 
+async function runAttendanceAction(action, metadata = { source: "manual" }) {
+  await executeAttendanceAction(action, metadata);
   return buildStateSnapshot();
 }
 
@@ -865,11 +988,24 @@ function registerIpcHandlers() {
   ipcMain.handle("clockbot:save-settings", (_event, partialSettings) => {
     const existingSettings = settingsService.getSettings();
     const nextSettings = {
-      morningTime: partialSettings.morningTime,
-      eveningTime: partialSettings.eveningTime,
+      morningTime: Object.prototype.hasOwnProperty.call(partialSettings, "morningTime")
+        ? partialSettings.morningTime
+        : existingSettings.morningTime,
+      eveningTime: Object.prototype.hasOwnProperty.call(partialSettings, "eveningTime")
+        ? partialSettings.eveningTime
+        : existingSettings.eveningTime,
       attendanceUrl: Object.prototype.hasOwnProperty.call(partialSettings, "attendanceUrl")
         ? partialSettings.attendanceUrl
         : existingSettings.attendanceUrl,
+      scheduledRetryCount: Object.prototype.hasOwnProperty.call(partialSettings, "scheduledRetryCount")
+        ? partialSettings.scheduledRetryCount
+        : existingSettings.scheduledRetryCount,
+      fuzzyTimeEnabled: Object.prototype.hasOwnProperty.call(partialSettings, "fuzzyTimeEnabled")
+        ? partialSettings.fuzzyTimeEnabled
+        : existingSettings.fuzzyTimeEnabled,
+      fuzzyMinutes: Object.prototype.hasOwnProperty.call(partialSettings, "fuzzyMinutes")
+        ? partialSettings.fuzzyMinutes
+        : existingSettings.fuzzyMinutes,
       browserPreference: "chrome"
     };
 
@@ -1032,7 +1168,7 @@ function wireServices() {
   });
   schedulerService = new SchedulerService({
     getSettings: () => getRuntimeSettings(),
-    onTrigger: (action, metadata) => runAttendanceAction(action, metadata),
+    onTrigger: (action, metadata) => executeAttendanceAction(action, metadata),
     onMissed: async (action, metadata) => {
       const minutesLate = Math.round(metadata.delayMs / 60000);
       const message = `${ACTION_LABELS[action]} was skipped because the app resumed ${minutesLate} minutes late.`;
@@ -1043,6 +1179,10 @@ function wireServices() {
       broadcastState();
     },
     onDayChanged: () => resetDailyState(),
+    onScheduleChanged: () => {
+      refreshPendingMessages();
+      broadcastState();
+    },
     log: logService
   });
 

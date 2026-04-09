@@ -26,6 +26,8 @@ const stateElements = {
   closeWindowButton: document.getElementById("closeWindowButton"),
   settingsDialog: document.getElementById("settingsDialog"),
   settingsAttendanceUrlInput: document.getElementById("settingsAttendanceUrlInput"),
+  settingsScheduledRetryCountInput: document.getElementById("settingsScheduledRetryCountInput"),
+  settingsFuzzyMinutesInput: document.getElementById("settingsFuzzyMinutesInput"),
   settingsOpenExtensionFolderButton: document.getElementById("settingsOpenExtensionFolderButton"),
   barkDeviceKeyInput: document.getElementById("barkDeviceKeyInput"),
   barkIconUrlInput: document.getElementById("barkIconUrlInput"),
@@ -282,10 +284,14 @@ function setSettingsDialogError(message = "") {
 
 function populateSettingsDialog({
   attendanceUrl = "",
+  scheduledRetryCount = 0,
+  fuzzyMinutes = 0,
   deviceKey = "",
   iconUrl = ""
 } = {}) {
   stateElements.settingsAttendanceUrlInput.value = attendanceUrl;
+  stateElements.settingsScheduledRetryCountInput.value = String(scheduledRetryCount);
+  stateElements.settingsFuzzyMinutesInput.value = String(fuzzyMinutes);
   stateElements.barkDeviceKeyInput.value = deviceKey;
   stateElements.barkIconUrlInput.value = iconUrl;
   stateElements.settingsDeleteBarkButton.hidden = !deviceKey && !iconUrl;
@@ -307,6 +313,14 @@ async function openSettingsDialog() {
     attendanceUrl: currentState && currentState.settings
       ? currentState.settings.attendanceUrl || ""
       : "",
+    scheduledRetryCount: currentState && currentState.settings
+      ? currentState.settings.scheduledRetryCount || 0
+      : 0,
+    fuzzyMinutes: currentState && currentState.settings
+      ? currentState.settings.fuzzyTimeEnabled
+        ? currentState.settings.fuzzyMinutes || 0
+        : 0
+      : 0,
     deviceKey: barkSettings.deviceKey || "",
     iconUrl: barkSettings.iconUrl || ""
   });
@@ -361,6 +375,20 @@ function normalizeTimeField(input) {
   }
 
   return normalized;
+}
+
+function normalizeNonNegativeIntegerValue(value, fallback = 0) {
+  const trimmed = String(value || "").trim();
+
+  if (!trimmed) {
+    return fallback;
+  }
+
+  if (!/^\d+$/.test(trimmed)) {
+    return null;
+  }
+
+  return Number.parseInt(trimmed, 10);
 }
 
 function collectSettingsPayload() {
@@ -526,7 +554,7 @@ function canRunManualActions(state) {
 }
 
 function canClearCredentials(state) {
-  if (!state) {
+  if (!state || state.monitoringEnabled) {
     return false;
   }
 
@@ -563,9 +591,13 @@ function renderResetScheduleAvailability(state) {
     return;
   }
 
-  stateElements.resetScheduleButton.disabled =
-    state.settings.morningTime === DEFAULT_MORNING_TIME &&
-    state.settings.eveningTime === DEFAULT_EVENING_TIME;
+  stateElements.resetScheduleButton.disabled = state.monitoringEnabled;
+}
+
+function renderScheduleEditingAvailability(state) {
+  const locked = !state || state.monitoringEnabled;
+  stateElements.morningTime.disabled = locked;
+  stateElements.eveningTime.disabled = locked;
 }
 
 function renderEngineControls(state) {
@@ -655,6 +687,7 @@ function render(state) {
   syncPasswordPlaceholder(state);
   stateElements.morningTime.value = state.settings.morningTime;
   stateElements.eveningTime.value = state.settings.eveningTime;
+  renderScheduleEditingAvailability(state);
 
   renderToggleButton(state);
   renderLogWindowButton(state);
@@ -803,12 +836,10 @@ stateElements.closeWindowButton.addEventListener("click", async () => {
 });
 
 stateElements.clearCredentialsButton.addEventListener("click", async () => {
-  const confirmationText = currentState && currentState.monitoringEnabled
-    ? "Clear the saved username and password from this PC? The current monitoring session will keep using the in-memory copy until you stop it."
-    : "Clear the saved username and password from this PC and from this form?";
+  const confirmationText = "Clear the saved username and password from this PC and from this form?";
 
   const confirmed = await showConfirmDialog({
-    title: "Clear saved info?",
+    title: "Clear login info?",
     message: confirmationText,
     confirmLabel: "Clear",
     confirmTone: "danger"
@@ -921,12 +952,32 @@ stateElements.confirmDialog.addEventListener("click", (event) => {
 
 stateElements.settingsDialogSave.addEventListener("click", async () => {
   const attendanceUrl = stateElements.settingsAttendanceUrlInput.value.trim();
+  const scheduledRetryCount = normalizeNonNegativeIntegerValue(
+    stateElements.settingsScheduledRetryCountInput.value,
+    0
+  );
+  const fuzzyMinutes = normalizeNonNegativeIntegerValue(
+    stateElements.settingsFuzzyMinutesInput.value,
+    0
+  );
   const deviceKey = stateElements.barkDeviceKeyInput.value.trim();
   const iconUrl = stateElements.barkIconUrlInput.value.trim();
 
   if (!attendanceUrl || !isValidHttpUrl(attendanceUrl)) {
     setSettingsDialogError("IEYASU URL must be a valid http or https address.");
     stateElements.settingsAttendanceUrlInput.focus();
+    return;
+  }
+
+  if (scheduledRetryCount === null) {
+    setSettingsDialogError("Extra retries must be a whole number that is 0 or higher.");
+    stateElements.settingsScheduledRetryCountInput.focus();
+    return;
+  }
+
+  if (fuzzyMinutes === null) {
+    setSettingsDialogError("Fuzzy time must be a whole number that is 0 or higher.");
+    stateElements.settingsFuzzyMinutesInput.focus();
     return;
   }
 
@@ -937,7 +988,7 @@ stateElements.settingsDialogSave.addEventListener("click", async () => {
   }
 
   if (!deviceKey && currentState && getBarkState(currentState).configured) {
-    setSettingsDialogError("Use Delete Bark Key if you want to remove the current Bark setup.");
+    setSettingsDialogError("Use Clear All if you want to remove the current Bark setup.");
     stateElements.barkDeviceKeyInput.focus();
     return;
   }
@@ -949,6 +1000,9 @@ stateElements.settingsDialogSave.addEventListener("click", async () => {
       morningTime: effectiveState.settings.morningTime,
       eveningTime: effectiveState.settings.eveningTime,
       attendanceUrl,
+      scheduledRetryCount,
+      fuzzyTimeEnabled: fuzzyMinutes > 0,
+      fuzzyMinutes,
       browserPreference: getSelectedBrowserPreferenceFromForm()
     });
 
@@ -967,8 +1021,18 @@ stateElements.settingsDialogSave.addEventListener("click", async () => {
 });
 
 stateElements.settingsDeleteBarkButton.addEventListener("click", async () => {
+  const draftRetryCount = normalizeNonNegativeIntegerValue(
+    stateElements.settingsScheduledRetryCountInput.value,
+    0
+  );
+  const draftFuzzyMinutes = normalizeNonNegativeIntegerValue(
+    stateElements.settingsFuzzyMinutesInput.value,
+    0
+  );
   const draft = {
     attendanceUrl: stateElements.settingsAttendanceUrlInput.value.trim(),
+    scheduledRetryCount: draftRetryCount === null ? 0 : draftRetryCount,
+    fuzzyMinutes: draftFuzzyMinutes === null ? 0 : draftFuzzyMinutes,
     deviceKey: stateElements.barkDeviceKeyInput.value.trim(),
     iconUrl: stateElements.barkIconUrlInput.value.trim()
   };
@@ -976,8 +1040,8 @@ stateElements.settingsDeleteBarkButton.addEventListener("click", async () => {
   closeSettingsDialog();
 
   const confirmed = await showConfirmDialog({
-    title: "Clear all Bark settings?",
-    message: "ClockBot will remove the saved Bark device key and icon URL. Your IEYASU URL will stay unchanged.",
+    title: "Clear automation and Bark settings?",
+    message: "ClockBot will set Extra Retries and Fuzzy Time to 0, and remove the saved Bark device key and icon URL. Your IEYASU URL and daily schedule will stay unchanged.",
     confirmLabel: "Clear All",
     confirmTone: "danger"
   });
@@ -989,10 +1053,21 @@ stateElements.settingsDeleteBarkButton.addEventListener("click", async () => {
   }
 
   try {
+    await window.clockBotApi.saveSettings({
+      morningTime: currentState.settings.morningTime,
+      eveningTime: currentState.settings.eveningTime,
+      attendanceUrl: draft.attendanceUrl,
+      scheduledRetryCount: 0,
+      fuzzyTimeEnabled: false,
+      fuzzyMinutes: 0,
+      browserPreference: getSelectedBrowserPreferenceFromForm()
+    });
     const state = await window.clockBotApi.clearBarkSettings();
     render(state);
     populateSettingsDialog({
       attendanceUrl: draft.attendanceUrl,
+      scheduledRetryCount: 0,
+      fuzzyMinutes: 0,
       deviceKey: "",
       iconUrl: ""
     });
@@ -1021,6 +1096,18 @@ stateElements.settingsDialog.addEventListener("click", (event) => {
 });
 
 stateElements.settingsAttendanceUrlInput.addEventListener("input", () => {
+  if (!stateElements.settingsDialogError.hidden) {
+    setSettingsDialogError("");
+  }
+});
+
+stateElements.settingsScheduledRetryCountInput.addEventListener("input", () => {
+  if (!stateElements.settingsDialogError.hidden) {
+    setSettingsDialogError("");
+  }
+});
+
+stateElements.settingsFuzzyMinutesInput.addEventListener("input", () => {
   if (!stateElements.settingsDialogError.hidden) {
     setSettingsDialogError("");
   }
