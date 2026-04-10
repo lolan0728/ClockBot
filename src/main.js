@@ -404,7 +404,7 @@ function showNotification(title, body) {
 
 function shouldSendBarkResult(status, metadata = {}) {
   const source = metadata.source || (metadata.scheduledFor ? "scheduled" : "manual");
-  return source === "scheduled" && status === "Failed";
+  return source === "scheduled";
 }
 
 function notifyBarkResult(action, status, message, metadata = {}) {
