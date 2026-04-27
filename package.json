@@ -1,6 +1,6 @@
 {
   "name": "clockbot",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Desktop tray app for IEYASU attendance automation.",
   "author": "ClockBot",
   "main": "src/main.js",

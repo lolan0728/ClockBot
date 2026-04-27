@@ -8,6 +8,8 @@
   const ATTENDANCE_WAIT_TIMEOUT_MS = 90000;
   const POST_PUNCH_WAIT_TIMEOUT_MS = 15000;
   const TAB_LOAD_TIMEOUT_MS = 30000;
+  const TAB_ERROR_PAGE_RECOVERY_LIMIT = 2;
+  const TAB_ERROR_PAGE_RECOVERY_DELAY_MS = 1200;
   const TAB_CLOSE_DELAY_MS = 1800;
   const COMMAND_HEARTBEAT_INTERVAL_MS = 3000;
   const MESSAGE_RETRY_DELAY_MS = 250;
@@ -100,6 +102,10 @@
 
   function isHttpUrl(candidate) {
     return /^https?:\/\//i.test(String(candidate || ""));
+  }
+
+  function isChromeErrorUrl(candidate) {
+    return /^chrome-error:\/\//i.test(String(candidate || ""));
   }
 
   function isIeyasuUrl(candidate) {
@@ -437,6 +443,12 @@
 
     return {
       report,
+      snapshot() {
+        return {
+          stage: latestStage,
+          message: latestMessage
+        };
+      },
       start,
       stop
     };
@@ -530,21 +542,28 @@
       await reportResult(command.commandId, result);
     } catch (error) {
       const message = toErrorMessage(error);
+      const progressSnapshot = typeof executeCommand.lastProgressSnapshot === "function"
+        ? executeCommand.lastProgressSnapshot()
+        : { stage: "", message: "" };
       console.error("ClockBot command execution failed.", {
         commandId: command.commandId,
+        stage: progressSnapshot.stage || null,
+        progressMessage: progressSnapshot.message || null,
         message
       });
 
       await reportLog("error", "ClockBot command execution failed.", {
         commandId: command.commandId,
         action: command.action,
+        stage: progressSnapshot.stage || "",
+        progressMessage: progressSnapshot.message || "",
         message
       });
 
       try {
         await reportResult(command.commandId, {
           status: "Failed",
-          stage: "failed",
+          stage: progressSnapshot.stage || "failed",
           message
         });
       } catch (resultError) {
@@ -622,8 +641,65 @@
   }
 
   async function waitForInjectableTab(tabId, timeoutMs = TAB_LOAD_TIMEOUT_MS) {
+    return waitForInjectableTabWithRecovery(tabId, {
+      timeoutMs
+    });
+  }
+
+  async function recoverTabFromErrorPage(tabId, options = {}) {
+    const attendanceUrl = typeof options.attendanceUrl === "string"
+      ? options.attendanceUrl.trim()
+      : "";
+    const currentUrl = typeof options.currentUrl === "string"
+      ? options.currentUrl.trim()
+      : "";
+    const progressReporter = options.progressReporter || null;
+    const commandId = typeof options.commandId === "string"
+      ? options.commandId
+      : "";
+    const recoveryAttempt = Number.isInteger(options.recoveryAttempt)
+      ? options.recoveryAttempt
+      : 1;
+
+    if (!attendanceUrl || !isHttpUrl(attendanceUrl)) {
+      throw new Error("ClockBot could not recover the IEYASU tab because the attendance URL is missing.");
+    }
+
+    await reportLog("warn", "ClockBot hit a Chrome error page and will reload the attendance tab.", {
+      commandId,
+      tabId,
+      recoveryAttempt,
+      currentUrl: currentUrl || null,
+      attendanceUrl
+    });
+
+    if (progressReporter) {
+      await progressReporter.report(
+        "recovering_error_page",
+        "Chrome opened an error page first, so ClockBot is reloading the attendance tab."
+      );
+    }
+
+    await tabsUpdate(tabId, {
+      url: attendanceUrl,
+      active: true
+    });
+    await sleep(TAB_ERROR_PAGE_RECOVERY_DELAY_MS);
+  }
+
+  async function waitForInjectableTabWithRecovery(tabId, options = {}) {
+    const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : TAB_LOAD_TIMEOUT_MS;
+    const attendanceUrl = typeof options.attendanceUrl === "string"
+      ? options.attendanceUrl.trim()
+      : "";
+    const progressReporter = options.progressReporter || null;
+    const commandId = typeof options.commandId === "string"
+      ? options.commandId
+      : "";
+    const allowErrorPageRecovery = options.allowErrorPageRecovery !== false;
     const startedAt = Date.now();
     let lastTab = null;
+    let recoveryAttempts = 0;
 
     while (Date.now() - startedAt < timeoutMs) {
       const tab = await tabsGet(tabId);
@@ -631,6 +707,22 @@
 
       if (tab.status === "complete" && isHttpUrl(tab.url)) {
         return tab;
+      }
+
+      if (tab.status === "complete" &&
+        isChromeErrorUrl(tab.url) &&
+        allowErrorPageRecovery &&
+        attendanceUrl &&
+        recoveryAttempts < TAB_ERROR_PAGE_RECOVERY_LIMIT) {
+        recoveryAttempts += 1;
+        await recoverTabFromErrorPage(tabId, {
+          attendanceUrl,
+          progressReporter,
+          commandId,
+          currentUrl: tab.url,
+          recoveryAttempt: recoveryAttempts
+        });
+        continue;
       }
 
       await sleep(250);
@@ -657,8 +749,21 @@
     }
   }
 
-  async function ensureContentScript(tabId) {
-    const tab = await waitForInjectableTab(tabId);
+  function isErrorPageExecutionFailure(error) {
+    return /showing error page/i.test(toErrorMessage(error));
+  }
+
+  async function ensureContentScript(tabId, options = {}) {
+    const context = {
+      attendanceUrl: typeof options.attendanceUrl === "string"
+        ? options.attendanceUrl.trim()
+        : "",
+      progressReporter: options.progressReporter || null,
+      commandId: typeof options.commandId === "string"
+        ? options.commandId
+        : ""
+    };
+    let tab = await waitForInjectableTabWithRecovery(tabId, context);
 
     if (!isIeyasuUrl(tab.url)) {
       throw new Error("ClockBot can only automate tabs on IEYASU.");
@@ -668,12 +773,42 @@
       return;
     }
 
-    await executeScript({
-      target: {
-        tabId
-      },
-      files: ["content-script.js"]
-    });
+    try {
+      await executeScript({
+        target: {
+          tabId
+        },
+        files: ["content-script.js"]
+      });
+    } catch (error) {
+      if (!context.attendanceUrl || !isErrorPageExecutionFailure(error)) {
+        throw error;
+      }
+
+      await recoverTabFromErrorPage(tabId, {
+        attendanceUrl: context.attendanceUrl,
+        progressReporter: context.progressReporter,
+        commandId: context.commandId,
+        currentUrl: tab && typeof tab.url === "string" ? tab.url : "",
+        recoveryAttempt: TAB_ERROR_PAGE_RECOVERY_LIMIT + 1
+      });
+
+      tab = await waitForInjectableTabWithRecovery(tabId, {
+        ...context,
+        allowErrorPageRecovery: false
+      });
+
+      if (!isIeyasuUrl(tab.url)) {
+        throw error;
+      }
+
+      await executeScript({
+        target: {
+          tabId
+        },
+        files: ["content-script.js"]
+      });
+    }
 
     await sleep(MESSAGE_RETRY_DELAY_MS);
 
@@ -682,8 +817,8 @@
     }
   }
 
-  async function sendContentMessage(tabId, type, extra = {}) {
-    await ensureContentScript(tabId);
+  async function sendContentMessage(tabId, type, extra = {}, options = {}) {
+    await ensureContentScript(tabId, options);
 
     const response = await tabsSendMessage(tabId, {
       source: "clockbot",
@@ -700,25 +835,25 @@
     return response;
   }
 
-  async function tryInspectLoginState(tabId) {
+  async function tryInspectLoginState(tabId, options = {}) {
     try {
-      return await sendContentMessage(tabId, "clockbot:inspect-login");
+      return await sendContentMessage(tabId, "clockbot:inspect-login", {}, options);
     } catch (_error) {
       return null;
     }
   }
 
-  async function tryInspectAttendanceState(tabId) {
+  async function tryInspectAttendanceState(tabId, options = {}) {
     try {
-      return await sendContentMessage(tabId, "clockbot:inspect-attendance");
+      return await sendContentMessage(tabId, "clockbot:inspect-attendance", {}, options);
     } catch (_error) {
       return null;
     }
   }
 
-  async function tryReadErrorMessage(tabId) {
+  async function tryReadErrorMessage(tabId, options = {}) {
     try {
-      const response = await sendContentMessage(tabId, "clockbot:read-error-message");
+      const response = await sendContentMessage(tabId, "clockbot:read-error-message", {}, options);
       return typeof response.message === "string" ? response.message.trim() : "";
     } catch (_error) {
       return "";
@@ -1045,7 +1180,12 @@
   }
 
   async function ensureLoggedIn(tabId, command, progressReporter) {
-    const loginState = await sendContentMessage(tabId, "clockbot:inspect-login");
+    const contentScriptOptions = {
+      attendanceUrl: command.attendanceUrl,
+      progressReporter,
+      commandId: command.commandId
+    };
+    const loginState = await sendContentMessage(tabId, "clockbot:inspect-login", {}, contentScriptOptions);
 
     if (!loginState.loginRequired) {
       await progressReporter.report(
@@ -1084,31 +1224,34 @@
       "Login submitted. Waiting for IEYASU to finish loading."
     );
 
-    await waitForLoginCompletion(tabId);
+    await waitForLoginCompletion(tabId, contentScriptOptions);
   }
 
-  async function waitForLoginCompletion(tabId) {
+  async function waitForLoginCompletion(tabId, contentScriptOptions = {}) {
     const startedAt = Date.now();
 
     while (Date.now() - startedAt < LOGIN_WAIT_TIMEOUT_MS) {
       try {
-        await waitForInjectableTab(tabId, 5000);
+        await waitForInjectableTabWithRecovery(tabId, {
+          ...contentScriptOptions,
+          timeoutMs: 5000
+        });
       } catch (_error) {
         await sleep(500);
         continue;
       }
 
-      const errorMessage = await tryReadErrorMessage(tabId);
+      const errorMessage = await tryReadErrorMessage(tabId, contentScriptOptions);
       if (errorMessage) {
         throw new Error(errorMessage);
       }
 
-      const loginState = await tryInspectLoginState(tabId);
+      const loginState = await tryInspectLoginState(tabId, contentScriptOptions);
       if (loginState && !loginState.loginRequired) {
         return;
       }
 
-      const attendanceStateResponse = await tryInspectAttendanceState(tabId);
+      const attendanceStateResponse = await tryInspectAttendanceState(tabId, contentScriptOptions);
       if (attendanceStateResponse && areAttendanceButtonsVisible(attendanceStateResponse.state)) {
         return;
       }
@@ -1116,12 +1259,12 @@
       await sleep(1000);
     }
 
-    const finalErrorMessage = await tryReadErrorMessage(tabId);
+    const finalErrorMessage = await tryReadErrorMessage(tabId, contentScriptOptions);
     if (finalErrorMessage) {
       throw new Error(finalErrorMessage);
     }
 
-    const finalLoginState = await tryInspectLoginState(tabId);
+    const finalLoginState = await tryInspectLoginState(tabId, contentScriptOptions);
     if (finalLoginState && !finalLoginState.loginRequired) {
       return;
     }
@@ -1129,7 +1272,12 @@
     throw new Error("Login did not complete successfully.");
   }
 
-  async function waitForAttendanceControls(tabId, command) {
+  async function waitForAttendanceControls(tabId, command, progressReporter) {
+    const contentScriptOptions = {
+      attendanceUrl: command.attendanceUrl,
+      progressReporter,
+      commandId: command.commandId
+    };
     const startedAt = Date.now();
     let locationTimeoutObserved = false;
     let unresolvedButtonsLogged = false;
@@ -1137,7 +1285,12 @@
     let lastUrl = "";
 
     while (Date.now() - startedAt < ATTENDANCE_WAIT_TIMEOUT_MS) {
-      const attendanceResponse = await sendContentMessage(tabId, "clockbot:inspect-attendance");
+      const attendanceResponse = await sendContentMessage(
+        tabId,
+        "clockbot:inspect-attendance",
+        {},
+        contentScriptOptions
+      );
       lastState = attendanceResponse.state;
       lastUrl = attendanceResponse.url || lastUrl;
 
@@ -1190,11 +1343,16 @@
     };
   }
 
-  async function waitForPostPunchState(tabId, action) {
+  async function waitForPostPunchState(tabId, action, contentScriptOptions = {}) {
     const startedAt = Date.now();
 
     while (Date.now() - startedAt < POST_PUNCH_WAIT_TIMEOUT_MS) {
-      const attendanceResponse = await sendContentMessage(tabId, "clockbot:inspect-attendance");
+      const attendanceResponse = await sendContentMessage(
+        tabId,
+        "clockbot:inspect-attendance",
+        {},
+        contentScriptOptions
+      );
       const attendanceState = attendanceResponse.state;
 
       if (action === "clockIn" &&
@@ -1223,6 +1381,12 @@
     let activeTabId = null;
     const progressReporter = createCommandProgressReporter(command.commandId);
     progressReporter.start();
+    executeCommand.lastProgressSnapshot = () => progressReporter.snapshot();
+    const contentScriptOptions = {
+      attendanceUrl: command.attendanceUrl,
+      progressReporter,
+      commandId: command.commandId
+    };
 
     await progressReporter.report(
       "opening_tab",
@@ -1236,8 +1400,8 @@
 
     activeTabId = tab.id;
 
-    await waitForInjectableTab(activeTabId);
-    await ensureContentScript(activeTabId);
+    await waitForInjectableTabWithRecovery(activeTabId, contentScriptOptions);
+    await ensureContentScript(activeTabId, contentScriptOptions);
     await progressReporter.report(
       "tab_ready",
       "IEYASU tab is ready. Attaching the Chrome debugger input layer."
@@ -1254,7 +1418,7 @@
         `Waiting for the ${getActionLabel(command.action)} button to become actionable.`
       );
 
-      const attendanceWait = await waitForAttendanceControls(activeTabId, command);
+      const attendanceWait = await waitForAttendanceControls(activeTabId, command, progressReporter);
       const attendanceState = attendanceWait.state;
 
       if (!attendanceState || !isAttendanceStateActionable(attendanceState, command.action)) {
@@ -1316,7 +1480,11 @@
         "Waiting for IEYASU to confirm the post-click state change."
       );
 
-      const confirmedState = await waitForPostPunchState(activeTabId, command.action);
+      const confirmedState = await waitForPostPunchState(
+        activeTabId,
+        command.action,
+        contentScriptOptions
+      );
       if (!confirmedState) {
         throw new Error(`The ${getActionLabel(command.action)} action did not produce a confirmed state change.`);
       }
@@ -1332,6 +1500,7 @@
       await detachDebuggerQuietly(activeTabId);
       await closeTabAfterCommand(activeTabId);
       progressReporter.stop();
+      executeCommand.lastProgressSnapshot = null;
     }
   }
 

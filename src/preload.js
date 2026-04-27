@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("clockBotApi", {
   saveBarkSettings: (settings) => ipcRenderer.invoke("clockbot:save-bark-settings", settings),
   clearBarkSettings: () => ipcRenderer.invoke("clockbot:clear-bark-settings"),
   openExtensionFolder: () => ipcRenderer.invoke("clockbot:open-extension-folder"),
+  openExternalUrl: (targetUrl) => ipcRenderer.invoke("clockbot:open-external-url", targetUrl),
   clearStoredCredentials: () => ipcRenderer.invoke("clockbot:clear-stored-credentials"),
   closeWindow: () => ipcRenderer.invoke("clockbot:close-window"),
   resizeWindowToContent: (height) => ipcRenderer.send("clockbot:resize-window-to-content", height),

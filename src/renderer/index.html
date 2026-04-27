@@ -31,7 +31,10 @@
         <div class="hero-copy-block">
           <div class="hero-topline">
             <p class="eyebrow">IEYASU Attendance Helper</p>
-            <button id="toggleLogWindowButton" type="button" class="secondary panel-action hero-log-button">Show Live Log</button>
+            <div class="hero-actions">
+              <button id="openAboutButton" type="button" class="secondary panel-action hero-about-button">About</button>
+              <button id="toggleLogWindowButton" type="button" class="secondary panel-action hero-log-button">Show Live Log</button>
+            </div>
           </div>
           <h1>ClockBot</h1>
           <p class="hero-copy">
@@ -215,6 +218,40 @@
           <button id="settingsDeleteBarkButton" type="button" class="danger">Clear All</button>
           <button id="settingsDialogCancel" type="button" class="secondary">Cancel</button>
           <button id="settingsDialogSave" type="button" class="primary">Save</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="aboutDialog" class="confirm-dialog">
+      <div class="confirm-dialog-card about-dialog-card">
+        <p class="section-kicker">About</p>
+        <div class="about-hero">
+          <div class="about-mark" aria-hidden="true">
+            <img src="../assets/icon-64.png" alt="" class="about-mark-image" />
+          </div>
+          <div class="about-copy">
+            <h2 id="aboutAppName">ClockBot</h2>
+            <p class="confirm-dialog-message">A calm, modern IEYASU attendance helper for your daily routine.</p>
+          </div>
+        </div>
+
+        <section class="dialog-section about-dialog-section">
+          <div class="about-version-row">
+            <span class="about-version-label">Version</span>
+            <span id="aboutVersionBadge" class="about-version-badge">v0.0.0</span>
+          </div>
+          <button id="aboutRepositoryButton" type="button" class="about-repository-link">
+            <span>View on GitHub</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M14 5h5v5" />
+              <path d="M10 14 19 5" />
+              <path d="M19 14v4a1 1 0 0 1-1 1h-12a1 1 0 0 1-1-1v-12a1 1 0 0 1 1-1h4" />
+            </svg>
+          </button>
+        </section>
+
+        <div class="dialog-actions">
+          <button id="aboutDialogClose" type="button" class="primary">Close</button>
         </div>
       </div>
     </dialog>

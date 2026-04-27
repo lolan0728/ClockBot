@@ -252,6 +252,13 @@ p {
   margin-bottom: 8px;
 }
 
+.hero-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .eyebrow,
 .section-kicker {
   text-transform: uppercase;
@@ -714,6 +721,11 @@ button:disabled {
   flex: 0 0 auto;
 }
 
+.hero-about-button {
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
 .section-header {
   display: flex;
   justify-content: space-between;
@@ -970,6 +982,110 @@ button:disabled {
   gap: 14px;
 }
 
+.about-dialog-card {
+  gap: 16px;
+}
+
+.about-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.about-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.about-mark-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.about-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.about-copy h2 {
+  margin: 0;
+}
+
+.about-dialog-section {
+  gap: 12px;
+}
+
+.about-version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.about-version-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.about-version-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(36, 95, 73, 0.1);
+  border: 1px solid rgba(36, 95, 73, 0.14);
+  color: var(--primary-strong);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.about-repository-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  min-height: 46px;
+  padding: 0 16px;
+  border: 1px solid rgba(36, 95, 73, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--primary-strong);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84);
+}
+
+.about-repository-link:hover {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.about-repository-link svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .dialog-section {
   display: grid;
   gap: 10px;
@@ -1059,6 +1175,15 @@ button:disabled {
     width: fit-content;
   }
 
+  .hero-actions {
+    width: 100%;
+  }
+
+  .hero-about-button,
+  .hero-log-button {
+    width: fit-content;
+  }
+
   .hero,
   .card,
   .log-window-shell {
@@ -1080,6 +1205,12 @@ button:disabled {
 
   .dialog-inline-fields {
     grid-template-columns: 1fr;
+  }
+
+  .about-hero,
+  .about-version-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .log-window-shell {

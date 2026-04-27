@@ -27,6 +27,7 @@ const ACTION_LABELS = {
   clockIn: "Clock In",
   clockOut: "Clock Out"
 };
+const REPOSITORY_URL = "https://github.com/lolan0728/ClockBot";
 const WINDOW_ICON_PATH = path.join(__dirname, "assets", "icon.ico");
 const TRAY_ICON_PATH = path.join(__dirname, "assets", "tray-icon.png");
 const TRAY_MENU_SHOW_WINDOW_ICON_PATH = path.join(__dirname, "assets", "tray-menu-show-window.png");
@@ -302,6 +303,11 @@ function buildStateSnapshot() {
   const settings = getRuntimeSettings();
 
   return {
+    appInfo: {
+      name: app.getName(),
+      version: app.getVersion(),
+      repositoryUrl: REPOSITORY_URL
+    },
     settings,
     credentialsReady: Boolean(runtimeCredentials && runtimeCredentials.username && runtimeCredentials.password),
     activeCredentials: {
@@ -985,6 +991,27 @@ function createTray() {
 
 function registerIpcHandlers() {
   ipcMain.handle("clockbot:get-state", () => buildStateSnapshot());
+  ipcMain.handle("clockbot:open-external-url", async (_event, targetUrl) => {
+    const candidate = String(targetUrl || "").trim();
+
+    if (!candidate) {
+      throw new Error("URL is required.");
+    }
+
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(candidate);
+    } catch (_error) {
+      throw new Error("URL must be a valid http or https address.");
+    }
+
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      throw new Error("URL must use http or https.");
+    }
+
+    await shell.openExternal(parsedUrl.toString());
+    return true;
+  });
 
   ipcMain.handle("clockbot:get-bark-settings", () => {
     return barkService

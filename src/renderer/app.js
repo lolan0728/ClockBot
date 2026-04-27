@@ -5,6 +5,7 @@ const stateElements = {
   eveningTime: document.getElementById("eveningTime"),
   extensionConnectionBadge: document.getElementById("extensionConnectionBadge"),
   automationEngineNote: document.getElementById("automationEngineNote"),
+  openAboutButton: document.getElementById("openAboutButton"),
   openSettingsButton: document.getElementById("openSettingsButton"),
   barkStatusNote: document.getElementById("barkStatusNote"),
   manualActionsHint: document.getElementById("manualActionsHint"),
@@ -34,7 +35,12 @@ const stateElements = {
   settingsDialogError: document.getElementById("settingsDialogError"),
   settingsDeleteBarkButton: document.getElementById("settingsDeleteBarkButton"),
   settingsDialogCancel: document.getElementById("settingsDialogCancel"),
-  settingsDialogSave: document.getElementById("settingsDialogSave")
+  settingsDialogSave: document.getElementById("settingsDialogSave"),
+  aboutDialog: document.getElementById("aboutDialog"),
+  aboutDialogClose: document.getElementById("aboutDialogClose"),
+  aboutAppName: document.getElementById("aboutAppName"),
+  aboutVersionBadge: document.getElementById("aboutVersionBadge"),
+  aboutRepositoryButton: document.getElementById("aboutRepositoryButton")
 };
 
 const credentialsForm = document.getElementById("credentialsForm");
@@ -84,6 +90,16 @@ function getBarkState(state) {
       enabled: false,
       configured: false,
       hasIcon: false
+    };
+}
+
+function getAppInfo(state) {
+  return state && state.appInfo
+    ? state.appInfo
+    : {
+      name: "ClockBot",
+      version: "0.0.0",
+      repositoryUrl: "https://github.com/lolan0728/ClockBot"
     };
 }
 
@@ -304,6 +320,24 @@ function closeSettingsDialog() {
   }
 
   setSettingsDialogError("");
+}
+
+function populateAboutDialog(state) {
+  const appInfo = getAppInfo(state);
+  stateElements.aboutAppName.textContent = appInfo.name || "ClockBot";
+  stateElements.aboutVersionBadge.textContent = `v${appInfo.version || "0.0.0"}`;
+}
+
+function openAboutDialog() {
+  populateAboutDialog(currentState);
+  stateElements.aboutDialog.showModal();
+  stateElements.aboutDialogClose.focus();
+}
+
+function closeAboutDialog() {
+  if (stateElements.aboutDialog.open) {
+    stateElements.aboutDialog.close();
+  }
 }
 
 async function openSettingsDialog() {
@@ -692,6 +726,7 @@ function render(state) {
   renderToggleButton(state);
   renderLogWindowButton(state);
   renderEngineControls(state);
+  populateAboutDialog(state);
   stateElements.manualActionsHint.textContent = getManualActionsHint(state);
   renderManualActionAvailability(state);
   renderClearCredentialsAvailability(state);
@@ -825,6 +860,10 @@ stateElements.openSettingsButton.addEventListener("click", async () => {
   } catch (error) {
     showError(error);
   }
+});
+
+stateElements.openAboutButton.addEventListener("click", () => {
+  openAboutDialog();
 });
 
 stateElements.closeWindowButton.addEventListener("click", async () => {
@@ -1092,6 +1131,30 @@ stateElements.settingsDialog.addEventListener("cancel", (event) => {
 stateElements.settingsDialog.addEventListener("click", (event) => {
   if (event.target === stateElements.settingsDialog) {
     closeSettingsDialog();
+  }
+});
+
+stateElements.aboutRepositoryButton.addEventListener("click", async () => {
+  try {
+    const appInfo = getAppInfo(currentState);
+    await window.clockBotApi.openExternalUrl(appInfo.repositoryUrl);
+  } catch (error) {
+    showError(error);
+  }
+});
+
+stateElements.aboutDialogClose.addEventListener("click", () => {
+  closeAboutDialog();
+});
+
+stateElements.aboutDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeAboutDialog();
+});
+
+stateElements.aboutDialog.addEventListener("click", (event) => {
+  if (event.target === stateElements.aboutDialog) {
+    closeAboutDialog();
   }
 });
 

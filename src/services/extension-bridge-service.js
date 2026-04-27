@@ -17,6 +17,9 @@ const COMMAND_RELAUNCH_COOLDOWN_MS = 6500;
 const CLIENT_CONNECT_TIMEOUT_MS = 20000;
 const COMMAND_TIMEOUT_MS = 180000;
 const COMMAND_POLL_INTERVAL_MS = 1500;
+const PROGRESS_STAGE_LOG_LEVELS = Object.freeze({
+  recovering_error_page: "warn"
+});
 const VALID_RESULT_STATUSES = new Set([
   "Success",
   "Failed",
@@ -214,8 +217,11 @@ class ExtensionBridgeService extends EventEmitter {
         reject,
         timeoutHandle: null,
         lastProgressKey: "",
+        lastProgressStage: "",
+        lastProgressMessage: "",
         launchAttempts: 0,
-        lastLaunchAt: 0
+        lastLaunchAt: 0,
+        startedWithExtensionConnected: this.#isClientConnected()
       };
 
       this.pendingCommand = command;
@@ -236,7 +242,7 @@ class ExtensionBridgeService extends EventEmitter {
           command.timeoutHandle.unref();
         }
 
-        if (!this.#isClientConnected()) {
+        if (!command.startedWithExtensionConnected) {
           this.#launchChromeForCommand(command, browserState, {
             stage: "launching_browser",
             message: "Ensuring Chrome is open with your everyday profile."
@@ -262,7 +268,7 @@ class ExtensionBridgeService extends EventEmitter {
 
   #launchChromeForCommand(command, browserState, progress) {
     command.lastLaunchAt = Date.now();
-    this.#launchChrome(browserState);
+    this.#launchChrome(command, browserState);
     command.launchAttempts += 1;
 
     if (progress) {
@@ -270,7 +276,7 @@ class ExtensionBridgeService extends EventEmitter {
     }
   }
 
-  #launchChrome(browserState) {
+  #launchChrome(command, browserState) {
     const argumentsList = [];
 
     if (browserState.profileDirectoryName) {
@@ -288,7 +294,11 @@ class ExtensionBridgeService extends EventEmitter {
 
       this.log.info("Launching Chrome normally for extension automation.", {
         executablePath: browserState.executablePath,
-        profileDirectoryName: browserState.profileDirectoryName || null
+        profileDirectoryName: browserState.profileDirectoryName || null,
+        commandId: command ? command.id : null,
+        action: command ? command.action : null,
+        launchAttempt: command ? command.launchAttempts + 1 : 1,
+        coldStart: command ? !command.startedWithExtensionConnected : null
       });
     } catch (error) {
       throw new Error(`Could not launch Chrome. ${error && error.message ? error.message : String(error)}`);
@@ -411,6 +421,8 @@ class ExtensionBridgeService extends EventEmitter {
       message: progress.message || "",
       updatedAt: progress.updatedAt || toIsoTimestamp()
     };
+    command.lastProgressStage = payload.stage;
+    command.lastProgressMessage = payload.message;
 
     try {
       command.onProgress(payload);
@@ -503,6 +515,12 @@ class ExtensionBridgeService extends EventEmitter {
           stage: "extension_picked_up",
           message: "Chrome extension picked up the task."
         });
+        this.log.info("Chrome extension picked up a ClockBot task.", {
+          commandId: this.pendingCommand.id,
+          action: this.pendingCommand.action,
+          coldStart: !this.pendingCommand.startedWithExtensionConnected,
+          launchAttempts: this.pendingCommand.launchAttempts
+        });
 
         this.#respondJson(response, 200, {
           commandId: this.pendingCommand.id,
@@ -523,6 +541,7 @@ class ExtensionBridgeService extends EventEmitter {
 
           if (progressKey !== this.pendingCommand.lastProgressKey) {
             this.pendingCommand.lastProgressKey = progressKey;
+            this.#logInterestingProgress(this.pendingCommand, payload);
             this.#emitProgress(this.pendingCommand, {
               stage: payload.stage || "",
               message: payload.message || "",
@@ -617,6 +636,30 @@ class ExtensionBridgeService extends EventEmitter {
       "Content-Type": "application/json; charset=utf-8"
     });
     response.end(JSON.stringify(payload));
+  }
+
+  #logInterestingProgress(command, payload = {}) {
+    const logLevel = PROGRESS_STAGE_LOG_LEVELS[payload.stage];
+
+    if (!logLevel) {
+      return;
+    }
+
+    const context = {
+      commandId: command.id,
+      action: command.action,
+      stage: payload.stage,
+      message: payload.message || "",
+      coldStart: !command.startedWithExtensionConnected,
+      launchAttempts: command.launchAttempts
+    };
+
+    if (logLevel === "warn") {
+      this.log.warn(`Extension progress: ${payload.message || payload.stage}`, context);
+      return;
+    }
+
+    this.log.info(`Extension progress: ${payload.message || payload.stage}`, context);
   }
 }
 
