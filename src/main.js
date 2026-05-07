@@ -1037,6 +1037,9 @@ function registerIpcHandlers() {
       attendanceUrl: Object.prototype.hasOwnProperty.call(partialSettings, "attendanceUrl")
         ? partialSettings.attendanceUrl
         : existingSettings.attendanceUrl,
+      clockInWorkModePreference: Object.prototype.hasOwnProperty.call(partialSettings, "clockInWorkModePreference")
+        ? partialSettings.clockInWorkModePreference
+        : existingSettings.clockInWorkModePreference,
       scheduledRetryCount: Object.prototype.hasOwnProperty.call(partialSettings, "scheduledRetryCount")
         ? partialSettings.scheduledRetryCount
         : existingSettings.scheduledRetryCount,

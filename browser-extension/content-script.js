@@ -8,6 +8,12 @@
   const LOGIN_LABELS = ["\u30ed\u30b0\u30a4\u30f3", "Login"];
   const CLOCK_IN_LABEL = "\u51fa\u52e4";
   const CLOCK_OUT_LABEL = "\u9000\u52e4";
+  const WORK_MODE_LABELS = Object.freeze({
+    office: "\u51fa\u793e",
+    remote: "\u5728\u5b85",
+    outing: "\u5916\u51fa"
+  });
+  const WORK_MODE_OPTION_LABELS = Object.freeze(Object.values(WORK_MODE_LABELS));
   const LOCATION_TIMEOUT_TEXT = "\u4f4d\u7f6e\u60c5\u5831\u53d6\u5f97\u30bf\u30a4\u30e0\u30a2\u30a6\u30c8\u3057\u307e\u3057\u305f";
   const LOGIN_FIELD_SELECTORS = [
     "input[name='login_id']",
@@ -608,10 +614,163 @@
     };
   }
 
+  function getWorkModeOptions(selectElement) {
+    if (!selectElement) {
+      return [];
+    }
+
+    return Array.from(selectElement.options || []).map((option) => ({
+      text: normalizeText(option.textContent || option.label || option.innerText || ""),
+      value: String(option.value || "")
+    }));
+  }
+
+  function isWorkModeSelect(selectElement) {
+    if (!selectElement || !isVisible(selectElement) || selectElement.disabled) {
+      return false;
+    }
+
+    const optionTexts = getWorkModeOptions(selectElement).map((option) => option.text);
+    return WORK_MODE_OPTION_LABELS.every((label) => optionTexts.includes(label));
+  }
+
+  function measureElementDistance(leftRect, rightRect) {
+    if (!leftRect || !rightRect) {
+      return Number.POSITIVE_INFINITY;
+    }
+
+    const leftCenterX = leftRect.left + (leftRect.width / 2);
+    const leftCenterY = leftRect.top + (leftRect.height / 2);
+    const rightCenterX = rightRect.left + (rightRect.width / 2);
+    const rightCenterY = rightRect.top + (rightRect.height / 2);
+    return Math.hypot(leftCenterX - rightCenterX, leftCenterY - rightCenterY);
+  }
+
+  function summarizeWorkModeControl(selectElement) {
+    if (!selectElement) {
+      return {
+        status: "not_found",
+        currentLabel: "",
+        options: [],
+        target: null
+      };
+    }
+
+    const options = getWorkModeOptions(selectElement);
+    const selectedOption = selectElement.options[selectElement.selectedIndex] || null;
+
+    return {
+      status: "found",
+      currentLabel: normalizeText(
+        selectedOption
+          ? (selectedOption.textContent || selectedOption.label || selectedOption.innerText || "")
+          : ""
+      ),
+      options: options.map((option) => option.text),
+      target: buildTarget(selectElement)
+    };
+  }
+
+  function resolveWorkModeControl(clockInButton) {
+    const candidates = Array.from(document.querySelectorAll("select"))
+      .filter((selectElement) => isWorkModeSelect(selectElement));
+
+    if (!candidates.length) {
+      return null;
+    }
+
+    if (!clockInButton || !clockInButton.element) {
+      return candidates[0];
+    }
+
+    const clockInRect = clockInButton.element.getBoundingClientRect();
+    return candidates
+      .slice()
+      .sort((left, right) => (
+        measureElementDistance(left.getBoundingClientRect(), clockInRect) -
+        measureElementDistance(right.getBoundingClientRect(), clockInRect)
+      ))[0];
+  }
+
+  function setWorkModePreference(preference) {
+    const targetLabel = WORK_MODE_LABELS[String(preference || "").trim().toLowerCase()];
+    if (!targetLabel) {
+      return {
+        ok: true,
+        status: "option_missing",
+        currentLabel: "",
+        targetLabel: "",
+        options: []
+      };
+    }
+
+    const controls = getVisibleInteractiveControls();
+    const clockInButton = selectAttendanceButton(controls, CLOCK_IN_LABEL);
+    const selectElement = resolveWorkModeControl(clockInButton);
+
+    if (!selectElement) {
+      return {
+        ok: true,
+        status: "not_found",
+        currentLabel: "",
+        targetLabel,
+        options: []
+      };
+    }
+
+    const options = getWorkModeOptions(selectElement);
+    const targetIndex = options.findIndex((option) => option.text === targetLabel);
+    const selectedOption = selectElement.options[selectElement.selectedIndex] || null;
+    const currentLabel = normalizeText(
+      selectedOption
+        ? (selectedOption.textContent || selectedOption.label || selectedOption.innerText || "")
+        : ""
+    );
+
+    if (targetIndex < 0) {
+      return {
+        ok: true,
+        status: "option_missing",
+        currentLabel,
+        targetLabel,
+        options: options.map((option) => option.text)
+      };
+    }
+
+    if (currentLabel === targetLabel) {
+      return {
+        ok: true,
+        status: "already_selected",
+        currentLabel,
+        targetLabel,
+        options: options.map((option) => option.text)
+      };
+    }
+
+    selectElement.selectedIndex = targetIndex;
+    selectElement.value = selectElement.options[targetIndex].value;
+    selectElement.dispatchEvent(new Event("input", { bubbles: true }));
+    selectElement.dispatchEvent(new Event("change", { bubbles: true }));
+
+    const nextSelectedOption = selectElement.options[selectElement.selectedIndex] || null;
+    return {
+      ok: true,
+      status: "applied",
+      currentLabel: normalizeText(
+        nextSelectedOption
+          ? (nextSelectedOption.textContent || nextSelectedOption.label || nextSelectedOption.innerText || "")
+          : ""
+      ),
+      targetLabel,
+      options: options.map((option) => option.text)
+    };
+  }
+
   function resolveAttendanceButtons() {
     const controls = getVisibleInteractiveControls();
     const clockInButton = selectAttendanceButton(controls, CLOCK_IN_LABEL);
     const clockOutButton = selectAttendanceButton(controls, CLOCK_OUT_LABEL);
+    const workModeControl = resolveWorkModeControl(clockInButton);
     let clockInState = classifyButtonVisualState(clockInButton);
     let clockOutState = classifyButtonVisualState(clockOutButton);
 
@@ -638,7 +797,8 @@
       visibleControls: controls.map((control) => control.text),
       pageText: normalizeText(document.body ? document.body.innerText : ""),
       clockIn: summarizeButtonState(clockInButton, clockInState),
-      clockOut: summarizeButtonState(clockOutButton, clockOutState)
+      clockOut: summarizeButtonState(clockOutButton, clockOutState),
+      workModeControl: summarizeWorkModeControl(workModeControl)
     };
   }
 
@@ -700,7 +860,8 @@
       state: {
         visibleControls: state.visibleControls,
         clockIn: state.clockIn,
-        clockOut: state.clockOut
+        clockOut: state.clockOut,
+        workModeControl: state.workModeControl
       }
     };
   }
@@ -731,6 +892,11 @@
 
       if (message.type === "clockbot:inspect-attendance") {
         sendResponse(inspectAttendanceState());
+        return false;
+      }
+
+      if (message.type === "clockbot:set-work-mode") {
+        sendResponse(setWorkModePreference(message.preference));
         return false;
       }
 

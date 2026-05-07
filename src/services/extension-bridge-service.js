@@ -184,7 +184,7 @@ class ExtensionBridgeService extends EventEmitter {
     return this.extensionDirectory;
   }
 
-  async runAction({ action, credentials, attendanceUrl, onProgress }) {
+  async runAction({ action, credentials, attendanceUrl, clockInWorkModePreference, onProgress }) {
     await this.start();
 
     if (this.pendingCommand) {
@@ -209,6 +209,7 @@ class ExtensionBridgeService extends EventEmitter {
           password: credentials.password
         },
         attendanceUrl,
+        clockInWorkModePreference,
         location,
         createdAt: toIsoTimestamp(),
         dispatchedAt: null,
@@ -526,6 +527,7 @@ class ExtensionBridgeService extends EventEmitter {
           commandId: this.pendingCommand.id,
           action: this.pendingCommand.action,
           attendanceUrl: this.pendingCommand.attendanceUrl,
+          clockInWorkModePreference: this.pendingCommand.clockInWorkModePreference,
           credentials: this.pendingCommand.credentials,
           location: this.pendingCommand.location
         });

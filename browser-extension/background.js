@@ -860,6 +860,110 @@
     }
   }
 
+  function getWorkModeLabel(preference) {
+    if (preference === "office") {
+      return "出社";
+    }
+
+    if (preference === "outing") {
+      return "外出";
+    }
+
+    return "在宅";
+  }
+
+  async function maybeSetClockInWorkMode(
+    tabId,
+    command,
+    progressReporter,
+    attendanceState,
+    contentScriptOptions = {}
+  ) {
+    if (command.action !== "clockIn" || !command.clockInWorkModePreference) {
+      return;
+    }
+
+    const preferredLabel = getWorkModeLabel(command.clockInWorkModePreference);
+    const workModeControl = attendanceState && attendanceState.workModeControl
+      ? attendanceState.workModeControl
+      : null;
+
+    if (workModeControl &&
+      workModeControl.status === "found" &&
+      workModeControl.currentLabel === preferredLabel) {
+      return;
+    }
+
+    try {
+      if (workModeControl &&
+        workModeControl.status === "found" &&
+        hasValidTarget(workModeControl.target)) {
+        await progressReporter.report(
+          "work_mode_opening",
+          `Opening the Clock In work mode control before selecting ${preferredLabel}.`
+        );
+
+        await pressButtonHumanized(tabId, workModeControl.target, {
+          hoverMinMs: 280,
+          hoverMaxMs: 720,
+          preClickPauseMinMs: 110,
+          preClickPauseMaxMs: 240
+        });
+
+        await sleep(randomInt(140, 280));
+      }
+
+      const response = await sendContentMessage(
+        tabId,
+        "clockbot:set-work-mode",
+        {
+          preference: command.clockInWorkModePreference
+        },
+        contentScriptOptions
+      );
+
+      if (response.status === "applied") {
+        await progressReporter.report(
+          "work_mode_applied",
+          `Set the Clock In work mode to ${preferredLabel} before clicking ${getActionLabel(command.action)}.`
+        );
+        return;
+      }
+
+      if (response.status === "already_selected" || response.status === "not_found") {
+        return;
+      }
+
+      if (response.status === "option_missing") {
+        await reportLog("warn", "ClockBot could not find the preferred Clock In work mode option.", {
+          commandId: command.commandId,
+          action: command.action,
+          preference: command.clockInWorkModePreference,
+          preferredLabel,
+          currentLabel: response.currentLabel || "",
+          options: Array.isArray(response.options) ? response.options : []
+        });
+        return;
+      }
+
+      await reportLog("warn", "ClockBot received an unexpected Clock In work mode response.", {
+        commandId: command.commandId,
+        action: command.action,
+        preference: command.clockInWorkModePreference,
+        preferredLabel,
+        status: response.status || ""
+      });
+    } catch (error) {
+      await reportLog("warn", "ClockBot could not apply the preferred Clock In work mode.", {
+        commandId: command.commandId,
+        action: command.action,
+        preference: command.clockInWorkModePreference,
+        preferredLabel,
+        message: toErrorMessage(error)
+      });
+    }
+  }
+
   async function ensureDebuggerAttached(tabId) {
     try {
       await attachTabDebugger(tabId);
@@ -1462,6 +1566,8 @@
       if (!hasValidTarget(targetButton.target)) {
         throw new Error(`ClockBot found the ${getActionLabel(command.action)} button, but could not resolve a clickable target.`);
       }
+
+      await maybeSetClockInWorkMode(activeTabId, command, progressReporter, attendanceState, contentScriptOptions);
 
       await progressReporter.report(
         "clicking_action",

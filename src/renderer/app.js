@@ -27,6 +27,7 @@ const stateElements = {
   closeWindowButton: document.getElementById("closeWindowButton"),
   settingsDialog: document.getElementById("settingsDialog"),
   settingsAttendanceUrlInput: document.getElementById("settingsAttendanceUrlInput"),
+  settingsClockInWorkModePreferenceSelect: document.getElementById("settingsClockInWorkModePreferenceSelect"),
   settingsScheduledRetryCountInput: document.getElementById("settingsScheduledRetryCountInput"),
   settingsFuzzyMinutesInput: document.getElementById("settingsFuzzyMinutesInput"),
   settingsOpenExtensionFolderButton: document.getElementById("settingsOpenExtensionFolderButton"),
@@ -63,6 +64,12 @@ const TIME_HELP_TEXT = "Use 24-hour time in HH:MM format, for example 09:00.";
 const DEFAULT_MORNING_TIME = "09:00";
 const DEFAULT_EVENING_TIME = "18:00";
 const DEFAULT_BROWSER_PREFERENCE = "chrome";
+const DEFAULT_CLOCK_IN_WORK_MODE_PREFERENCE = "remote";
+const CLOCK_IN_WORK_MODE_PREFERENCES = new Set([
+  "office",
+  "remote",
+  "outing"
+]);
 
 function getBrowserAvailabilityState(state) {
   return state && state.capabilities && state.capabilities.browsers
@@ -300,12 +307,17 @@ function setSettingsDialogError(message = "") {
 
 function populateSettingsDialog({
   attendanceUrl = "",
+  clockInWorkModePreference = DEFAULT_CLOCK_IN_WORK_MODE_PREFERENCE,
   scheduledRetryCount = 0,
   fuzzyMinutes = 0,
   deviceKey = "",
   iconUrl = ""
 } = {}) {
   stateElements.settingsAttendanceUrlInput.value = attendanceUrl;
+  stateElements.settingsClockInWorkModePreferenceSelect.value =
+    CLOCK_IN_WORK_MODE_PREFERENCES.has(clockInWorkModePreference)
+      ? clockInWorkModePreference
+      : DEFAULT_CLOCK_IN_WORK_MODE_PREFERENCE;
   stateElements.settingsScheduledRetryCountInput.value = String(scheduledRetryCount);
   stateElements.settingsFuzzyMinutesInput.value = String(fuzzyMinutes);
   stateElements.barkDeviceKeyInput.value = deviceKey;
@@ -347,6 +359,9 @@ async function openSettingsDialog() {
     attendanceUrl: currentState && currentState.settings
       ? currentState.settings.attendanceUrl || ""
       : "",
+    clockInWorkModePreference: currentState && currentState.settings
+      ? currentState.settings.clockInWorkModePreference || DEFAULT_CLOCK_IN_WORK_MODE_PREFERENCE
+      : DEFAULT_CLOCK_IN_WORK_MODE_PREFERENCE,
     scheduledRetryCount: currentState && currentState.settings
       ? currentState.settings.scheduledRetryCount || 0
       : 0,
@@ -423,6 +438,13 @@ function normalizeNonNegativeIntegerValue(value, fallback = 0) {
   }
 
   return Number.parseInt(trimmed, 10);
+}
+
+function normalizeClockInWorkModePreference(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return CLOCK_IN_WORK_MODE_PREFERENCES.has(normalized)
+    ? normalized
+    : null;
 }
 
 function collectSettingsPayload() {
@@ -991,6 +1013,9 @@ stateElements.confirmDialog.addEventListener("click", (event) => {
 
 stateElements.settingsDialogSave.addEventListener("click", async () => {
   const attendanceUrl = stateElements.settingsAttendanceUrlInput.value.trim();
+  const clockInWorkModePreference = normalizeClockInWorkModePreference(
+    stateElements.settingsClockInWorkModePreferenceSelect.value
+  );
   const scheduledRetryCount = normalizeNonNegativeIntegerValue(
     stateElements.settingsScheduledRetryCountInput.value,
     0
@@ -1005,6 +1030,12 @@ stateElements.settingsDialogSave.addEventListener("click", async () => {
   if (!attendanceUrl || !isValidHttpUrl(attendanceUrl)) {
     setSettingsDialogError("IEYASU URL must be a valid http or https address.");
     stateElements.settingsAttendanceUrlInput.focus();
+    return;
+  }
+
+  if (!clockInWorkModePreference) {
+    setSettingsDialogError("Clock In work mode must be one of the supported options.");
+    stateElements.settingsClockInWorkModePreferenceSelect.focus();
     return;
   }
 
@@ -1039,6 +1070,7 @@ stateElements.settingsDialogSave.addEventListener("click", async () => {
       morningTime: effectiveState.settings.morningTime,
       eveningTime: effectiveState.settings.eveningTime,
       attendanceUrl,
+      clockInWorkModePreference,
       scheduledRetryCount,
       fuzzyTimeEnabled: fuzzyMinutes > 0,
       fuzzyMinutes,
@@ -1159,6 +1191,12 @@ stateElements.aboutDialog.addEventListener("click", (event) => {
 });
 
 stateElements.settingsAttendanceUrlInput.addEventListener("input", () => {
+  if (!stateElements.settingsDialogError.hidden) {
+    setSettingsDialogError("");
+  }
+});
+
+stateElements.settingsClockInWorkModePreferenceSelect.addEventListener("change", () => {
   if (!stateElements.settingsDialogError.hidden) {
     setSettingsDialogError("");
   }

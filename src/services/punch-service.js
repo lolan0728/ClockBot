@@ -14,6 +14,7 @@ class PunchService {
       action,
       credentials,
       attendanceUrl: settings.attendanceUrl,
+      clockInWorkModePreference: settings.clockInWorkModePreference,
       onProgress: options.onProgress
     });
   }

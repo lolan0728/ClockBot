@@ -7,11 +7,18 @@ const {
 
 const DEFAULT_ATTENDANCE_URL = "https://f.ieyasu.co/fointl/login";
 const DEFAULT_AUTOMATION_ENGINE = "extension";
+const DEFAULT_CLOCK_IN_WORK_MODE_PREFERENCE = "remote";
+const CLOCK_IN_WORK_MODE_PREFERENCES = new Set([
+  "office",
+  "remote",
+  "outing"
+]);
 
 const DEFAULT_SETTINGS = Object.freeze({
   morningTime: "09:00",
   eveningTime: "18:00",
   attendanceUrl: DEFAULT_ATTENDANCE_URL,
+  clockInWorkModePreference: DEFAULT_CLOCK_IN_WORK_MODE_PREFERENCE,
   scheduledRetryCount: 0,
   fuzzyTimeEnabled: false,
   fuzzyMinutes: 5,
@@ -42,6 +49,17 @@ function sanitizeAttendanceUrl(candidate) {
 
 function sanitizeAutomationEngine(candidate) {
   return DEFAULT_AUTOMATION_ENGINE;
+}
+
+function sanitizeClockInWorkModePreference(candidate) {
+  if (typeof candidate !== "string") {
+    return DEFAULT_CLOCK_IN_WORK_MODE_PREFERENCE;
+  }
+
+  const normalized = candidate.trim().toLowerCase();
+  return CLOCK_IN_WORK_MODE_PREFERENCES.has(normalized)
+    ? normalized
+    : DEFAULT_CLOCK_IN_WORK_MODE_PREFERENCE;
 }
 
 function sanitizeNonNegativeInteger(candidate, fallback) {
@@ -116,6 +134,9 @@ class SettingsService {
       }
 
       next.attendanceUrl = sanitizeAttendanceUrl(candidate.attendanceUrl);
+      next.clockInWorkModePreference = sanitizeClockInWorkModePreference(
+        candidate.clockInWorkModePreference
+      );
       next.scheduledRetryCount = sanitizeNonNegativeInteger(
         candidate.scheduledRetryCount,
         DEFAULT_SETTINGS.scheduledRetryCount
@@ -145,7 +166,10 @@ module.exports = {
   DEFAULT_AUTOMATION_ENGINE,
   DEFAULT_BROWSER_PREFERENCE,
   DEFAULT_ATTENDANCE_URL,
+  DEFAULT_CLOCK_IN_WORK_MODE_PREFERENCE,
   DEFAULT_SETTINGS,
+  CLOCK_IN_WORK_MODE_PREFERENCES,
   SettingsService,
+  sanitizeClockInWorkModePreference,
   sanitizeBrowserPreference
 };
