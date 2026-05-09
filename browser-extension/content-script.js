@@ -651,6 +651,7 @@
       return {
         status: "not_found",
         currentLabel: "",
+        currentIndex: -1,
         options: [],
         target: null
       };
@@ -666,6 +667,7 @@
           ? (selectedOption.textContent || selectedOption.label || selectedOption.innerText || "")
           : ""
       ),
+      currentIndex: selectElement.selectedIndex,
       options: options.map((option) => option.text),
       target: buildTarget(selectElement)
     };

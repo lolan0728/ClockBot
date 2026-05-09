@@ -872,6 +872,52 @@
     return "在宅";
   }
 
+  function resolveWorkModeOptionIndex(workModeControl, targetLabel) {
+    if (!workModeControl || !Array.isArray(workModeControl.options)) {
+      return -1;
+    }
+
+    return workModeControl.options.findIndex((optionLabel) => optionLabel === targetLabel);
+  }
+
+  function resolveCurrentWorkModeIndex(workModeControl) {
+    if (!workModeControl) {
+      return -1;
+    }
+
+    if (Number.isInteger(workModeControl.currentIndex)) {
+      return workModeControl.currentIndex;
+    }
+
+    return resolveWorkModeOptionIndex(workModeControl, workModeControl.currentLabel || "");
+  }
+
+  function buildWorkModeOptionTarget(workModeControl, targetIndex) {
+    if (!workModeControl || !hasValidTarget(workModeControl.target)) {
+      return null;
+    }
+
+    const currentIndex = resolveCurrentWorkModeIndex(workModeControl);
+    if (currentIndex < 0 || targetIndex < 0) {
+      return null;
+    }
+
+    const rowHeight = Math.max(28, Math.round((workModeControl.target.height || 38) * randomFloat(0.94, 1.08)));
+    const offsetRows = targetIndex - currentIndex;
+    const halfWidth = Math.max(8, (workModeControl.target.width || 0) * 0.12);
+    const x = clamp(
+      (workModeControl.target.left || 0) + ((workModeControl.target.width || 0) * 0.52) + randomFloat(-halfWidth, halfWidth),
+      (workModeControl.target.left || 0) + 6,
+      (workModeControl.target.left || 0) + (workModeControl.target.width || 0) - 6
+    );
+    const y = Math.round(workModeControl.target.y + (offsetRows * rowHeight) + randomFloat(-4, 4));
+
+    return {
+      x: Math.round(x),
+      y
+    };
+  }
+
   async function maybeSetClockInWorkMode(
     tabId,
     command,
@@ -887,6 +933,7 @@
     const workModeControl = attendanceState && attendanceState.workModeControl
       ? attendanceState.workModeControl
       : null;
+    const targetIndex = resolveWorkModeOptionIndex(workModeControl, preferredLabel);
 
     if (workModeControl &&
       workModeControl.status === "found" &&
@@ -895,6 +942,18 @@
     }
 
     try {
+      if (workModeControl && workModeControl.status === "found" && targetIndex < 0) {
+        await reportLog("warn", "ClockBot could not find the preferred Clock In work mode option.", {
+          commandId: command.commandId,
+          action: command.action,
+          preference: command.clockInWorkModePreference,
+          preferredLabel,
+          currentLabel: workModeControl.currentLabel || "",
+          options: Array.isArray(workModeControl.options) ? workModeControl.options : []
+        });
+        return;
+      }
+
       if (workModeControl &&
         workModeControl.status === "found" &&
         hasValidTarget(workModeControl.target)) {
@@ -911,6 +970,41 @@
         });
 
         await sleep(randomInt(140, 280));
+
+        const optionTarget = buildWorkModeOptionTarget(workModeControl, targetIndex);
+        if (hasValidTarget(optionTarget)) {
+          await progressReporter.report(
+            "work_mode_selecting",
+            `Moving to the ${preferredLabel} option and selecting it.`
+          );
+
+          await hoverTarget(tabId, optionTarget, {
+            hoverMinMs: 180,
+            hoverMaxMs: 460
+          });
+          await clickTarget(tabId, optionTarget, {
+            moveBeforeClick: false,
+            hoverMinMs: 90,
+            hoverMaxMs: 190
+          });
+
+          await sleep(randomInt(160, 320));
+
+          const refreshedAttendance = await tryInspectAttendanceState(tabId, contentScriptOptions);
+          const refreshedWorkModeControl = refreshedAttendance && refreshedAttendance.state
+            ? refreshedAttendance.state.workModeControl
+            : null;
+
+          if (refreshedWorkModeControl &&
+            refreshedWorkModeControl.status === "found" &&
+            refreshedWorkModeControl.currentLabel === preferredLabel) {
+            await progressReporter.report(
+              "work_mode_applied",
+              `Selected ${preferredLabel} before clicking ${getActionLabel(command.action)}.`
+            );
+            return;
+          }
+        }
       }
 
       const response = await sendContentMessage(
